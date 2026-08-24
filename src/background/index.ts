@@ -6,17 +6,16 @@
  * inside a promise callback may simply not exist by the time the event it wants
  * arrives.
  *
- * Status: M1 scaffold. The handlers below establish the wake-up points; the
- * collection they will drive is M3.
+ * The three modules below do not know about each other. The collector writes to
+ * the store; the icon renderer and the alert dispatcher each subscribe to
+ * storage changes. Adding a fourth consumer of snapshots means writing one file
+ * and adding one line here.
  */
 
-import { POLL_ALARM, ACTIVE_INTERVAL_MINUTES } from './alarms';
+import { initAlerts } from './alerts';
+import { initCollector } from './collector';
+import { initIcon } from './icon';
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(POLL_ALARM, { periodInMinutes: ACTIVE_INTERVAL_MINUTES });
-});
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== POLL_ALARM) return;
-  // M3: poll the provider, normalise, write the snapshot and the daily rollup.
-});
+initCollector();
+initIcon();
+initAlerts();

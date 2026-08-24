@@ -24,6 +24,7 @@ function history(peaks: number[], windowKey = '7d'): DailyRollup[] {
     date: dayKey(offset),
     windows: { [windowKey]: peak },
     messageCount: 10,
+    hourlyMessages: new Array<number>(24).fill(0),
   }));
 }
 
@@ -100,8 +101,8 @@ describe('usableHistory', () => {
   it('tolerates gaps rather than filling them with zeros', () => {
     // A day the user did not open Claude is missing evidence, not a quiet day.
     const sparse: DailyRollup[] = [
-      { date: dayKey(5), windows: { '7d': 40 }, messageCount: 5 },
-      { date: dayKey(1), windows: { '7d': 60 }, messageCount: 9 },
+      { date: dayKey(5), windows: { '7d': 40 }, messageCount: 5, hourlyMessages: [] },
+      { date: dayKey(1), windows: { '7d': 60 }, messageCount: 9, hourlyMessages: [] },
     ];
 
     expect(usableHistory('7d', sparse, NOW)).toHaveLength(2);

@@ -91,6 +91,14 @@ export interface DailyRollup {
   windows: Record<string, number>;
   /** Messages sent that day, counted from completion events. */
   messageCount: number;
+  /**
+   * Messages per hour of the local day, 24 entries, index 0 = midnight.
+   *
+   * Kept because "peak hr" is on the panel and there is no other source for it
+   * — docs/protocol.md §"What the protocol does not give you" rules out
+   * anything finer. Costs 24 small integers a day.
+   */
+  hourlyMessages: number[];
 }
 
 /**
@@ -141,3 +149,77 @@ export const THRESHOLDS = {
   /** Above this, a window is critical. */
   crit: 90,
 } as const;
+
+/** Which day-parts and windows the user wants shown. Archive artboard 03. */
+export interface DisplayOptions {
+  session: boolean;
+  weekly: boolean;
+  forecast: boolean;
+  sparkline: boolean;
+}
+
+/**
+ * User settings.
+ *
+ * Note what is absent: there is no Telegram bot token here and there never will
+ * be. `chrome.storage.local` is plain JSON on disk, and a bot token is an
+ * unscoped bearer credential the user cannot contain once it leaks. What Wick
+ * holds is a per-user relay token it can revoke.
+ * See docs/decisions/0002-telegram-relay-not-bot-token.md.
+ */
+export interface Settings {
+  /** Weekly percentage at which an alert fires. Archive offers 50/80/90/95. */
+  alertThreshold: number;
+  /** Also send a message when a window rolls over. */
+  alertOnReset: boolean;
+  display: DisplayOptions;
+  /** Revocable per-user relay token, or null when alerts are not set up. */
+  relayToken: string | null;
+  /** Human label for where alerts land, for display only. */
+  relayLabel: string | null;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  alertThreshold: 80,
+  alertOnReset: true,
+  display: { session: true, weekly: true, forecast: true, sparkline: true },
+  relayToken: null,
+  relayLabel: null,
+};
+
+/** Thresholds the settings screen offers. From artboard 03. */
+export const ALERT_THRESHOLD_CHOICES = [50, 80, 90, 95] as const;
+
+/** How collection last went. Presentation shows this instead of inventing numbers. */
+export type CollectorStatus =
+  | { kind: 'never-run' }
+  /** No organisation cookie. The user is signed out of claude.ai. */
+  | { kind: 'signed-out' }
+  | { kind: 'ok'; at: number }
+  | { kind: 'error'; message: string; at: number };
+
+/** Everything presentation reads. Assembled by the store, never fetched. */
+export interface WickState {
+  snapshot: Snapshot | null;
+  history: DailyRollup[];
+  settings: Settings;
+  status: CollectorStatus;
+}
+
+/** Why an alert was sent. */
+export type AlertKind = 'threshold' | 'window-reset' | 'weekly-summary';
+
+/**
+ * An alert that has already gone out.
+ *
+ * `cycleKey` is what stops Wick sending the same warning every poll: it
+ * identifies the *cycle* of a window (its reset time), so crossing 80% once
+ * sends one message, and the next one cannot fire until the window has rolled
+ * over. A tracker that spams is a tracker you mute.
+ */
+export interface AlertRecord {
+  kind: AlertKind;
+  windowKey: string;
+  cycleKey: string;
+  at: number;
+}

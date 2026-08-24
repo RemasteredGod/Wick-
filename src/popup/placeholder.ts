@@ -69,6 +69,15 @@ export function placeholderProjection(now: number): Projection {
  */
 const PEAKS = [38, 52, 24, 66, 44, 74, 82];
 
+/**
+ * A plausible working day, peaking at 14:00 to match the archive's "Peak hr"
+ * tile. Shares sum to 1.
+ */
+const HOURLY_SHAPE = Array.from({ length: 24 }, (_, hour) => {
+  const weight = Math.exp(-((hour - 14) ** 2) / 18);
+  return weight / 7.5;
+});
+
 export function placeholderHistory(now: number): DailyRollup[] {
   return PEAKS.map((peak, index) => {
     const day = new Date(now - (PEAKS.length - 1 - index) * DAY_MS);
@@ -78,6 +87,7 @@ export function placeholderHistory(now: number): DailyRollup[] {
       date: `${day.getFullYear()}-${month}-${date}`,
       windows: { '7d': peak, '5h': Math.round(peak * 0.83) },
       messageCount: Math.round(peak * 0.5),
+      hourlyMessages: HOURLY_SHAPE.map((share) => Math.round(peak * 0.5 * share)),
     };
   });
 }
