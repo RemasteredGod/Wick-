@@ -15,20 +15,15 @@
  * If the anchor is missing, if the markup has moved, if anything throws — Wick
  * renders nothing and the page is exactly as it was. Breaking claude.ai to
  * report on claude.ai is not a trade worth making.
- *
- * Status: M1 mounts the card with placeholder data. The bridge is M3.
  */
 
 import { h, render } from 'preact';
+import { useState } from 'preact/hooks';
+import { project } from '~/core/projection';
+import { disconnectRelay, useWickState } from '~/popup/useWickState';
 import { SidebarCard } from './SidebarCard';
+import { initBridge } from './bridge';
 import { ANCHOR_TIMEOUT_MS, HOST_ID, findAnchor, findProjectsHeading } from './selectors';
-import {
-  PLACEHOLDER_PLAN,
-  PLACEHOLDER_TELEGRAM,
-  placeholderHistory,
-  placeholderProjection,
-  placeholderWindows,
-} from '~/popup/placeholder';
 import tokens from '~/styles/tokens.css?inline';
 import components from '~/styles/components.css?inline';
 import sidebar from './sidebar.css?inline';
@@ -39,6 +34,41 @@ import sidebar from './sidebar.css?inline';
  * the way in is what lets one token file serve both surfaces.
  */
 const SHADOW_STYLES = [tokens.replaceAll(':root', ':host'), components, sidebar].join('\n');
+
+/**
+ * The card, wired to the store.
+ *
+ * Presentation reads from storage and never fetches — the same hook the popup
+ * uses, because the two surfaces show the same numbers and there is no second
+ * source for them to disagree from.
+ *
+ * Until the first read lands this renders nothing rather than a row of zeros.
+ * An empty sidebar for a few milliseconds is invisible; a card that says 0% and
+ * then jumps is not.
+ */
+function Card() {
+  const { state, ready, update } = useWickState();
+  const [now] = useState(() => Date.now());
+
+  if (!ready) return null;
+
+  const windows = state.snapshot?.windows ?? [];
+  if (windows.length === 0) return null;
+
+  const weekly = windows[1] ?? windows[0];
+  const projection =
+    weekly === undefined ? null : project({ window: weekly, history: state.history, now });
+
+  return h(SidebarCard, {
+    windows,
+    history: state.history,
+    projection,
+    settings: state.settings,
+    onChange: update,
+    onDisconnect: disconnectRelay,
+    now,
+  });
+}
 
 function mount(anchor: Element): void {
   if (document.getElementById(HOST_ID)) return;
@@ -63,18 +93,7 @@ function mount(anchor: Element): void {
     anchor.append(host);
   }
 
-  const now = Date.now();
-  render(
-    h(SidebarCard, {
-      windows: placeholderWindows(now),
-      history: placeholderHistory(now),
-      projection: placeholderProjection(now),
-      plan: PLACEHOLDER_PLAN,
-      telegram: PLACEHOLDER_TELEGRAM,
-      now,
-    }),
-    root,
-  );
+  render(h(Card, {}), root);
 }
 
 /**
@@ -115,4 +134,7 @@ function safely(work: () => void): void {
   }
 }
 
+// The bridge does not depend on the card: limits observed on the wire are worth
+// forwarding whether or not the sidebar has an anchor to mount into.
+safely(initBridge);
 safely(waitForAnchor);

@@ -33,17 +33,24 @@ estimating. See [`docs/decisions/0001-no-token-estimation.md`](docs/decisions/00
 
 ## Status
 
-Early. This is the M1 scaffold: the extension builds, loads, and renders its
-interface, but the numbers on screen are placeholders. No network code yet.
+Early, but no longer a shell. The extension builds, loads, collects, projects
+and draws its own toolbar gauge, and every number on screen comes from
+`chrome.storage.local` rather than from a placeholder.
+
+Two things are outstanding, and both need something this repository cannot
+supply on its own: the protocol has not been checked against live traffic, and
+the Telegram relay service is designed but not deployed. Until the first is
+done, treat every reading as provisional — `docs/protocol.md` is a hypothesis
+about undocumented behaviour, and it says so on its first line.
 
 | Milestone | |
 |---|---|
-| M1 | Scaffold, design tokens, interface shell — **current** |
-| M2 | Verify the protocol against live traffic |
-| M3 | Real data — collector, store, polling |
-| M4 | Daily history and the projection engine |
-| M5 | Toolbar gauge rendering |
-| M6 | Telegram relay |
+| M1 | Scaffold, design tokens, interface shell — done |
+| M2 | Verify the protocol against live traffic — **outstanding**, needs a signed-in session in DevTools |
+| M3 | Real data — collector, store, polling — done |
+| M4 | Daily history and the projection engine — done |
+| M5 | Toolbar gauge rendering — done |
+| M6 | Telegram relay — extension side done; the relay service itself is designed but not deployed |
 
 Gemini and ChatGPT support, and cross-model conversation handoff, are on the
 roadmap beyond v1. They are not being built now.
@@ -87,6 +94,12 @@ pnpm test
 
 Host access is `https://claude.ai/*` and nothing else. Wick does not request
 `<all_urls>`.
+
+One host permission is *optional*: the Telegram relay's origin. It is not part
+of the install prompt, and Wick asks for it from the Connect button in settings
+— so if you never set up Telegram alerts you are never asked, and if you change
+your mind Chrome lets you take it back. Everything else in the extension works
+without it.
 
 ## Privacy
 

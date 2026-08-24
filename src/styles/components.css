@@ -341,3 +341,374 @@
   padding: var(--wick-space-9) 0;
   color: var(--wick-text-tertiary);
 }
+
+/* ---- Empty state --------------------------------------------------------- *
+ * What the panel says when there is nothing to show. Never a zero — a
+ * confident wrong number is worse than an honest gap. See AGENTS.md.          */
+
+.wick-empty {
+  margin: 0;
+  font-size: var(--wick-size-body);
+  line-height: var(--wick-leading-tight);
+  color: var(--wick-text-dim);
+  text-wrap: pretty;
+}
+
+/* ---- Settings ------------------------------------------------------------ *
+ * Artboard 03. Four groups, one screen, no tabs, in the archive's order.
+ *
+ * The archive draws this as a 400px modal. In the popup it is a full view at
+ * the popup's own width (docs/design.md deviation 3), so nothing here sets a
+ * width — the surface does. The injected panel wraps it in `.wick-modal`,
+ * which is where --wick-settings-width is applied.                            */
+
+.wick-settings {
+  display: flex;
+  flex-direction: column;
+  background: var(--wick-surface);
+}
+
+.wick-settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--wick-space-15) var(--wick-space-18);
+  border-bottom: 1px solid var(--wick-border);
+}
+
+.wick-settings__title {
+  font-size: var(--wick-size-title);
+}
+
+.wick-settings__close {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  color: var(--wick-text-dim);
+  cursor: pointer;
+  transition: var(--wick-transition);
+}
+
+.wick-settings__close:hover {
+  color: var(--wick-text-primary);
+}
+
+.wick-settings__body {
+  padding: var(--wick-space-18);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-20);
+}
+
+.wick-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-9);
+}
+
+.wick-settings__eyebrow {
+  margin: 0;
+  font-family: var(--wick-font-mono);
+  font-size: var(--wick-size-eyebrow);
+  font-weight: normal;
+  letter-spacing: var(--wick-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--wick-text-faint);
+}
+
+.wick-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-7);
+}
+
+.wick-settings__status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wick-space-8);
+}
+
+.wick-settings__row {
+  display: flex;
+  gap: var(--wick-space-7);
+}
+
+.wick-settings__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--wick-surface-sunken);
+  border: 1px solid var(--wick-border-input);
+  border-radius: var(--wick-radius-control);
+  padding: var(--wick-space-10) var(--wick-space-12);
+  font-size: var(--wick-size-body);
+  font-family: var(--wick-font-mono);
+  color: var(--wick-text-primary);
+  outline: none;
+  transition: var(--wick-transition);
+}
+
+.wick-settings__input:focus {
+  border-color: var(--wick-border-focus);
+}
+
+.wick-settings__input:disabled {
+  color: var(--wick-text-ghost);
+  cursor: not-allowed;
+}
+
+.wick-settings__input::placeholder {
+  color: var(--wick-text-ghost);
+}
+
+/* A button sized to sit beside an input rather than to fill a footer. */
+.wick-settings__inline-button {
+  flex: none;
+  white-space: nowrap;
+  padding: var(--wick-space-10) var(--wick-space-14);
+  font-size: var(--wick-size-body);
+}
+
+.wick-settings__primary {
+  background: var(--wick-accent);
+  border-color: var(--wick-accent);
+  color: var(--wick-accent-fg);
+}
+
+.wick-settings__primary:hover {
+  background: var(--wick-accent);
+}
+
+.wick-settings__primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wick-settings__note {
+  margin: 0;
+  font-size: var(--wick-size-meta);
+  line-height: var(--wick-leading-tight);
+  color: var(--wick-text-faint);
+  text-wrap: pretty;
+}
+
+.wick-settings__note code {
+  font-family: var(--wick-font-mono);
+}
+
+/* Warn, not crit: a stale code is a retry, not a threshold being breached. */
+.wick-settings__note--problem {
+  color: var(--wick-warn-text);
+}
+
+/* ---- Alert me at --------------------------------------------------------- */
+
+.wick-settings__chips {
+  display: flex;
+  gap: var(--wick-space-7);
+}
+
+.wick-settings__chip {
+  appearance: none;
+  font: inherit;
+  flex: 1;
+  text-align: center;
+  border: 1px solid var(--wick-border-input);
+  border-radius: var(--wick-radius-control);
+  background: transparent;
+  padding: var(--wick-space-9) 0;
+  font-size: var(--wick-size-body);
+  font-family: var(--wick-font-mono);
+  color: var(--wick-text-dim);
+  cursor: pointer;
+  transition: var(--wick-transition);
+}
+
+.wick-settings__chip:hover {
+  background: var(--wick-surface-hover);
+}
+
+.wick-settings__chip:focus-visible {
+  outline: 1px solid var(--wick-border-focus);
+  outline-offset: 1px;
+}
+
+.wick-settings__chip--on {
+  background: var(--wick-accent);
+  border-color: var(--wick-accent);
+  color: var(--wick-accent-fg);
+}
+
+.wick-settings__chip--on:hover {
+  background: var(--wick-accent);
+}
+
+.wick-settings__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--wick-space-2);
+}
+
+.wick-settings__switch-label {
+  font-size: var(--wick-size-body);
+  color: var(--wick-text-secondary);
+}
+
+/*
+ * The archive's track is 34×19 with a 15px knob. Those three are the only raw
+ * pixel values in this file: the space scale stops at 26 and a switch is a
+ * fixed control, not a spacing decision. Recorded in docs/design.md.
+ */
+.wick-settings__toggle {
+  appearance: none;
+  border: 0;
+  width: 34px;
+  height: 19px;
+  border-radius: var(--wick-radius-pill);
+  padding: var(--wick-space-2);
+  display: flex;
+  justify-content: flex-start;
+  background: var(--wick-track);
+  cursor: pointer;
+  transition: var(--wick-transition);
+}
+
+.wick-settings__toggle--on {
+  justify-content: flex-end;
+  background: var(--wick-accent);
+}
+
+.wick-settings__toggle:focus-visible {
+  outline: 1px solid var(--wick-border-focus);
+  outline-offset: 1px;
+}
+
+.wick-settings__knob {
+  width: 15px;
+  height: 15px;
+  border-radius: var(--wick-radius-pill);
+  background: var(--wick-text);
+}
+
+/* ---- Sidebar options ----------------------------------------------------- */
+
+.wick-settings__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-8);
+}
+
+.wick-settings__option {
+  appearance: none;
+  font: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-9);
+  cursor: pointer;
+}
+
+.wick-settings__option:focus-visible {
+  outline: 1px solid var(--wick-border-focus);
+  outline-offset: var(--wick-space-2);
+}
+
+.wick-settings__box {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: var(--wick-radius-mark);
+  border: 1px solid var(--wick-border-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wick-bg);
+  transition: var(--wick-transition);
+}
+
+.wick-settings__box--on {
+  background: var(--wick-accent);
+  border-color: var(--wick-accent);
+}
+
+.wick-settings__check {
+  width: var(--wick-space-10);
+  height: var(--wick-space-10);
+}
+
+.wick-settings__option-label {
+  font-size: var(--wick-size-body);
+  color: var(--wick-text-secondary);
+}
+
+/* ---- Project ------------------------------------------------------------- */
+
+.wick-settings__links {
+  display: flex;
+  gap: var(--wick-space-8);
+}
+
+.wick-settings__link {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+  border: 1px solid var(--wick-border-control);
+  border-radius: var(--wick-radius-control);
+  padding: var(--wick-space-9);
+  font-size: var(--wick-size-body);
+  color: var(--wick-text-primary);
+  transition: var(--wick-transition);
+}
+
+.wick-settings__link:hover {
+  background: var(--wick-surface-hover);
+}
+
+/* An ask, not an ad: its own colour family, used nowhere else. */
+.wick-settings__support {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wick-space-8);
+  text-decoration: none;
+  border: 1px solid var(--wick-support-border);
+  background: var(--wick-support-bg);
+  border-radius: var(--wick-radius-control);
+  padding: var(--wick-space-10) var(--wick-space-13);
+  transition: var(--wick-transition);
+}
+
+.wick-settings__support:hover {
+  background: var(--wick-support-bg-hover);
+}
+
+.wick-settings__support-label {
+  font-size: var(--wick-size-body);
+  color: var(--wick-support-text);
+}
+
+.wick-settings__support-handle {
+  font-size: var(--wick-size-meta);
+  font-family: var(--wick-font-mono);
+  color: var(--wick-support-meta);
+}
+
+.wick-settings__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--wick-space-13) var(--wick-space-18);
+  border-top: 1px solid var(--wick-border);
+}
+
+.wick-settings__version {
+  font-family: var(--wick-font-mono);
+  font-size: var(--wick-size-eyebrow);
+  color: var(--wick-text-faint);
+}

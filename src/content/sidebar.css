@@ -162,3 +162,34 @@
   padding: var(--wick-space-13) var(--wick-space-18);
   border-top: 1px solid var(--wick-border);
 }
+
+/* ---- Settings modal ------------------------------------------------------ *
+ * The injected panel keeps the archive's modal, which the 372px popup cannot
+ * (docs/design.md deviation 3). It covers the panel it opened from rather than
+ * the page: Wick is a guest here, and darkening someone else's sidebar to show
+ * its own settings is exactly the kind of thing a guest does not do.
+ *
+ * The card is 400px against a 372px panel, so it is allowed to overhang — it
+ * is centred on the panel and clamped to the viewport.                        */
+
+.wick-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--wick-space-12);
+  background: var(--wick-overlay);
+  border-radius: var(--wick-radius-panel);
+  overflow-y: auto;
+}
+
+.wick-modal > .wick-settings {
+  width: var(--wick-settings-width);
+  max-width: 100%;
+  border: 1px solid var(--wick-border-panel);
+  border-radius: var(--wick-radius-panel);
+  box-shadow: var(--wick-shadow-modal);
+  overflow: hidden;
+}

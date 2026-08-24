@@ -1,20 +1,35 @@
 import { useState } from 'preact/hooks';
 import { remainingFor } from '~/assets/mark';
 import { thresholdState } from '~/core/normalise';
-import type { LimitWindow, Projection as ProjectionResult, DailyRollup } from '~/core/types';
+import type {
+  DailyRollup,
+  LimitWindow,
+  Projection as ProjectionResult,
+  Settings as SettingsValues,
+} from '~/core/types';
 import { GearIcon } from '~/popup/components/GearIcon';
 import { HistoryStrip } from '~/popup/components/HistoryStrip';
 import { Mark } from '~/popup/components/Mark';
 import { Projection } from '~/popup/components/Projection';
+import { Settings } from '~/popup/components/Settings';
 import { TelegramCard } from '~/popup/components/TelegramCard';
 import { UsageMeter } from '~/popup/components/UsageMeter';
 
 interface SidebarCardProps {
+  /** Every window the provider reported. The display settings decide which show. */
   windows: LimitWindow[];
   history: DailyRollup[];
-  projection: ProjectionResult;
-  plan: string;
-  telegram: { connected: boolean; threshold: number; alsoOnReset: boolean };
+  /** `null` when there is no window to project from. */
+  projection: ProjectionResult | null;
+  settings: SettingsValues;
+  onChange(patch: Partial<SettingsValues>): void;
+  /**
+   * Revoke the relay token. There is deliberately no `onConnect` counterpart:
+   * connecting needs `chrome.permissions.request`, and a content script has no
+   * access to `chrome.permissions` and no way to get one. The settings screen
+   * says so rather than offering a field that cannot work.
+   */
+  onDisconnect?: () => void;
   now: number;
 }
 
@@ -28,18 +43,34 @@ interface SidebarCardProps {
  * logo, no coloured banner, nothing that announces itself in someone else's
  * navigation. Its third is "fail quiet". Both are why this renders inside a
  * shadow root and why nothing here reaches outside it.
+ *
+ * Unlike the popup, this surface keeps the archive's settings *modal* — it has
+ * the room the 372px popup does not. docs/design.md deviation 3.
  */
 export function SidebarCard({
   windows,
   history,
   projection,
-  plan,
-  telegram,
+  settings,
+  onChange,
+  onDisconnect,
   now,
 }: SidebarCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const weekly = windows[1];
+  // Session first, weekly second, in the provider's own order — the two the
+  // "Sidebar" settings group can switch off. Anything beyond them (an Opus
+  // window, an overage) has no toggle of its own and is always shown.
+  const shown = windows.filter((_, index) => {
+    if (index === 0) return settings.display.session;
+    if (index === 1) return settings.display.weekly;
+    return true;
+  });
+
+  const weekly = windows[1] ?? windows[0];
+  // The mark reflects the whole account, not just what is on screen: switching
+  // a bar off is a preference about the panel, not about what is being spent.
   const remaining = remainingFor(windows.map((w) => w.utilization));
   const worstState = thresholdState(
     remaining === null ? null : 100 - remaining,
@@ -65,7 +96,7 @@ export function SidebarCard({
         </span>
 
         <span class="wick-card__meters">
-          {windows.map((window) => (
+          {shown.map((window) => (
             <UsageMeter key={window.key} window={window} now={now} compact />
           ))}
         </span>
@@ -79,7 +110,6 @@ export function SidebarCard({
               <span class="wick-panel__title">Wick</span>
             </div>
             <div class="wick-panel__header-actions">
-              <span class="wick-badge">{plan}</span>
               <button
                 type="button"
                 class="wick-panel__close"
@@ -92,25 +122,34 @@ export function SidebarCard({
           </header>
 
           <div class="wick-panel__body">
-            {windows.map((window) => (
+            {shown.map((window) => (
               <UsageMeter key={window.key} window={window} now={now} />
             ))}
 
-            <Projection
-              projection={projection}
-              state={worstState}
-              resetsAt={weekly?.resetsAt ?? null}
-              now={now}
-            />
+            {settings.display.forecast && projection !== null && weekly !== undefined && (
+              <Projection
+                projection={projection}
+                state={worstState}
+                resetsAt={weekly.resetsAt}
+                now={now}
+              />
+            )}
 
-            <HistoryStrip history={history} windowKey="7d" now={now} compact />
+            {settings.display.sparkline && (
+              <HistoryStrip
+                history={history}
+                windowKey={weekly?.key ?? ''}
+                now={now}
+                compact
+              />
+            )}
 
             <div class="wick-rule" />
 
             <TelegramCard
-              connected={telegram.connected}
-              threshold={telegram.threshold}
-              alsoOnReset={telegram.alsoOnReset}
+              connected={settings.relayToken !== null}
+              threshold={settings.alertThreshold}
+              alsoOnReset={settings.alertOnReset}
             />
           </div>
 
@@ -123,10 +162,23 @@ export function SidebarCard({
               class="wick-button wick-button--icon"
               aria-label="Settings"
               title="Settings"
+              onClick={() => setSettingsOpen(true)}
             >
               <GearIcon />
             </button>
           </footer>
+
+          {settingsOpen && (
+            <div class="wick-modal" role="dialog" aria-label="Wick settings">
+              <Settings
+                settings={settings}
+                onChange={onChange}
+                {...(onDisconnect === undefined ? {} : { onDisconnect })}
+                onClose={() => setSettingsOpen(false)}
+                version={chrome.runtime.getManifest().version}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
