@@ -191,6 +191,73 @@ export function fillRect(
 }
 
 /**
+ * Narrowest the body may be drawn, in device pixels.
+ *
+ * The archive's body is 7×26 — 1:3.71 — and a 16px toolbar icon scaled to fit
+ * makes that 3.1 pixels wide. Three pixels of a rounded capsule is one solid
+ * column between two anti-aliased ones, so the fill colour arrives at roughly a
+ * third strength and the gauge stops reading as a colour at all. Four pixels
+ * gives it two solid columns to sit in.
+ *
+ * Binding only at 16px; at 32 and 48 the faithful width is already wider.
+ * See docs/decisions/0004-mark-at-16px.md.
+ */
+export const MIN_BODY_DEVICE_PIXELS = 4;
+
+/** The mark placed into a square raster box, in device pixels. */
+export interface RasterMark {
+  /** Uniform scale from geometry units to device pixels. */
+  scale: number;
+  /** Whole-pixel body rectangle. */
+  body: { x: number; y: number; width: number; height: number; radius: number };
+  /** Flame square, unrotated. Fractional — see below. */
+  flame: { x: number; y: number; size: number; centreX: number; centreY: number };
+}
+
+/**
+ * Lay the mark out to fill a square box of `boxSize` device pixels.
+ *
+ * Fitted by height, since the mark is far taller than it is wide, and with no
+ * margin: at 16px one device pixel of body height is over eight percentage
+ * points of quota, so padding is paid for in gauge resolution.
+ *
+ * The body's edges are snapped to whole pixels. A rounded rectangle whose left
+ * edge lands on x=6.32 is drawn across two columns at partial alpha on each
+ * side, which desaturates the one thing the icon exists to communicate. The
+ * flame is deliberately *not* snapped: it is a rotated disc, it has no straight
+ * edges to align, and forcing its centre onto the grid only moves it off the
+ * body's centre line.
+ */
+export function rasterLayout(geometry: MarkGeometry, boxSize: number): RasterMark {
+  const { viewBox, body, flame } = layout(geometry);
+  const scale = boxSize / viewBox.height;
+
+  const width = Math.max(MIN_BODY_DEVICE_PIXELS, Math.round(body.width * scale));
+  const height = Math.round(body.height * scale);
+  const x = Math.round((boxSize - width) / 2);
+  const y = Math.round(body.y * scale);
+
+  const flameSize = flame.size * scale;
+  const centreX = x + width / 2;
+  const centreY = flame.centreY * scale;
+
+  return {
+    scale,
+    // The radius is scaled from the archive's, then clamped by `bodyPath` to
+    // half the width — which is what the archive's own values do at both of its
+    // sizes, making the body a capsule rather than a rounded rectangle.
+    body: { x, y, width, height, radius: body.radius * scale },
+    flame: {
+      x: centreX - flameSize / 2,
+      y: centreY - flameSize / 2,
+      size: flameSize,
+      centreX,
+      centreY,
+    },
+  };
+}
+
+/**
  * Quota remaining across every window, as the mark shows it.
  *
  * The gauge tracks the most constrained window, because that is the one that
