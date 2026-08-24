@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+*.log
+.DS_Store
+.env
+.env.*
+coverage/
+
+# The design archive is the owner's source of truth and stays in the repo;
+# anything unpacked from it does not.
+claude design/**/unpacked/
