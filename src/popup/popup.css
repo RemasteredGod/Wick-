@@ -1,0 +1,80 @@
+/*
+ * The popup shell.
+ *
+ * Panel styles live here rather than in components.css because the popup and
+ * the injected panel frame themselves differently — the popup window supplies
+ * its own frame, so the archive's radius, border and drop shadow would only
+ * draw a card inside a card.
+ */
+
+@import '../styles/tokens.css';
+@import '../styles/components.css';
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: var(--wick-panel-width);
+  background: var(--wick-surface);
+  color: var(--wick-text);
+  font-family: var(--wick-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: var(--wick-space-8);
+  height: var(--wick-space-8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--wick-border-control);
+  border-radius: var(--wick-radius-row);
+}
+
+/* ---- Panel --------------------------------------------------------------- */
+
+.wick-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--wick-surface);
+}
+
+.wick-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--wick-space-16) var(--wick-space-18);
+  border-bottom: 1px solid var(--wick-border);
+}
+
+.wick-panel__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-10);
+}
+
+.wick-panel__title {
+  font-size: var(--wick-size-title-lg);
+  letter-spacing: var(--wick-tracking-title);
+}
+
+.wick-panel__body {
+  padding: var(--wick-space-16) var(--wick-space-18);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-16);
+}
+
+.wick-panel__footer {
+  display: flex;
+  gap: var(--wick-space-8);
+  padding: var(--wick-space-14) var(--wick-space-18);
+  border-top: 1px solid var(--wick-border);
+}

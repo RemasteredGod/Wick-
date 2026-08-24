@@ -1,0 +1,213 @@
+/*
+ * Wick design tokens.
+ *
+ * Every value here was lifted from the design archive
+ * ("Claude Tracker Telegram Extension.zip", artboards "Wick Extension" and
+ * "Wick In Context"), unchanged. Nothing was rounded, harmonised, or improved.
+ *
+ * docs/design.md records where each one came from and flags the handful that
+ * had to be derived because the archive does not contain them.
+ *
+ * Do not add a raw colour, size, radius or spacing value anywhere else in the
+ * codebase. If you need a token that is not here, see AGENTS.md.
+ *
+ * The archive is dark only. There is no light palette to carry over and none
+ * was invented, so these are declared unconditionally rather than behind a
+ * prefers-color-scheme query.
+ */
+
+:root {
+  /* ---- Ground ------------------------------------------------------------ */
+  --wick-bg: #141312;
+  --wick-surface: #1e1d1b;
+  --wick-surface-raised: #1c1b19;
+  --wick-surface-sunken: #171614;
+  --wick-surface-alt: #212020;
+  --wick-surface-inset: #232120;
+  --wick-surface-icon: #252321;
+  --wick-surface-hover: #272522;
+
+  /* ---- Tracks and bars --------------------------------------------------- */
+  --wick-track: #332f2b;
+  --wick-track-alt: #302e2b;
+  --wick-history-bar: #33312e;
+  --wick-history-bar-recent: #3c3a36;
+
+  /* ---- Borders ----------------------------------------------------------- */
+  --wick-border-muted: #262421;
+  --wick-border-card: #2a2825;
+  --wick-border: #2b2926;
+  --wick-border-card-alt: #2c2a27;
+  --wick-border-stat: #2f2d2a;
+  --wick-border-panel: #302e2b;
+  --wick-border-input: #33312d;
+  --wick-border-pill: #35332f;
+  --wick-border-strong: #35322e;
+  --wick-border-hover: #383530;
+  --wick-border-control: #3a3833;
+  --wick-border-focus: #4a4741;
+
+  /* ---- Text -------------------------------------------------------------- */
+  --wick-text: #f2efe9;
+  --wick-text-primary: #e8e4dd;
+  --wick-text-secondary: #c9c4bb;
+  --wick-text-tertiary: #b9b4ab;
+  --wick-text-muted: #a4a09a;
+  --wick-text-dim: #8a857d;
+  --wick-text-faint: #6f6a63;
+  --wick-text-ghost: #57534d;
+
+  /* ---- State ------------------------------------------------------------- *
+   * The accent carries "ok". Warn and crit are reserved strictly for
+   * threshold state. If either appears decoratively, the warning stops
+   * meaning anything.                                                        */
+  --wick-accent: #c96442;
+  --wick-accent-fg: #171310;
+  --wick-flame: #e8a33d;
+  --wick-ok: #6dcf8e;
+
+  --wick-warn: #d99a2b;
+  --wick-warn-bg: #2a2113;
+  --wick-warn-border: #4a3a18;
+  --wick-warn-text: #e0b256;
+  --wick-warn-text-strong: #f2c877;
+
+  /* Derived, not from the archive — see docs/design.md. Each is its warn
+   * counterpart with the hue set to 358 degrees, saturation and lightness
+   * untouched. */
+  --wick-crit: #d92b31;
+  --wick-crit-bg: #2a1314;
+  --wick-crit-border: #4a181a;
+  --wick-crit-text: #e0565b;
+  --wick-crit-text-strong: #f2777b;
+
+  /* ---- Support link ------------------------------------------------------ */
+  --wick-support-bg: #241d19;
+  --wick-support-bg-hover: #2b221d;
+  --wick-support-border: #3f3129;
+  --wick-support-text: #e6c3a8;
+  --wick-support-meta: #9c7a63;
+
+  /* ---- Overlay and shadow ------------------------------------------------ */
+  --wick-overlay: rgba(10, 9, 8, 0.6);
+  --wick-shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --wick-shadow-panel-lg: 0 30px 80px rgba(0, 0, 0, 0.65);
+  --wick-shadow-modal: 0 40px 100px rgba(0, 0, 0, 0.7);
+
+  /* ---- Radius ------------------------------------------------------------ *
+   * Named by role, because the archive applies them by role rather than as a
+   * scale.                                                                   */
+  --wick-radius-bar: 3px;
+  --wick-radius-mark: 4px;
+  --wick-radius-bar-lg: 5px;
+  --wick-radius-chip: 6px;
+  --wick-radius-segment: 7px;
+  --wick-radius-row: 8px;
+  --wick-radius-control: 9px;
+  --wick-radius-callout: 10px;
+  --wick-radius-card: 12px;
+  --wick-radius-panel-sm: 14px;
+  --wick-radius-panel: 16px;
+  --wick-radius-pill: 999px;
+  --wick-radius-flame: 50% 50% 50% 0;
+
+  /* ---- Type -------------------------------------------------------------- */
+  --wick-font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --wick-font-mono: ui-monospace, Menlo, monospace;
+
+  --wick-size-micro: 9.5px;
+  --wick-size-eyebrow: 10.5px;
+  --wick-size-meta: 11px;
+  --wick-size-note: 11.5px;
+  --wick-size-label: 12px;
+  --wick-size-body: 12.5px;
+  --wick-size-body-lg: 13px;
+  --wick-size-row: 13.5px;
+  --wick-size-title: 14px;
+  --wick-size-title-lg: 15px;
+  --wick-size-heading: 17px;
+  --wick-size-stat: 19px;
+
+  --wick-tracking-tighter: -0.02em;
+  --wick-tracking-tight: -0.01em;
+  --wick-tracking-title: 0.01em;
+  --wick-tracking-label: 0.02em;
+  --wick-tracking-wide: 0.03em;
+  --wick-tracking-eyebrow: 0.12em;
+  --wick-tracking-eyebrow-lg: 0.14em;
+  --wick-tracking-eyebrow-xl: 0.16em;
+
+  --wick-leading-tight: 1.5;
+  --wick-leading: 1.55;
+  --wick-leading-loose: 1.6;
+
+  /* ---- Space ------------------------------------------------------------- *
+   * The suffix is the pixel value. Only values the archive actually uses are
+   * defined; if a layout seems to want a gap that is missing here, the archive
+   * probably solved it another way.                                          */
+  --wick-space-1: 1px;
+  --wick-space-2: 2px;
+  --wick-space-3: 3px;
+  --wick-space-4: 4px;
+  --wick-space-5: 5px;
+  --wick-space-6: 6px;
+  --wick-space-7: 7px;
+  --wick-space-8: 8px;
+  --wick-space-9: 9px;
+  --wick-space-10: 10px;
+  --wick-space-11: 11px;
+  --wick-space-12: 12px;
+  --wick-space-13: 13px;
+  --wick-space-14: 14px;
+  --wick-space-15: 15px;
+  --wick-space-16: 16px;
+  --wick-space-18: 18px;
+  --wick-space-20: 20px;
+  --wick-space-22: 22px;
+  --wick-space-26: 26px;
+
+  /* ---- Component metrics ------------------------------------------------- */
+  --wick-panel-width: 372px;
+  --wick-sidebar-card-width: 300px;
+  --wick-settings-width: 400px;
+
+  --wick-mark-badge-size: 26px;
+  --wick-icon-button-width: 38px;
+
+  --wick-bar-height: 3px;
+  --wick-bar-height-lg: 5px;
+  --wick-history-height: 54px;
+  --wick-history-height-sm: 44px;
+
+  /* The mark. Geometry lives in src/assets/mark.ts; these are the sizes the
+   * archive renders it at. Body-to-flame proportion is fixed inside the
+   * geometry, so only the body dimensions are tokens. */
+  --wick-mark-width: 5px;
+  --wick-mark-height: 13px;
+  --wick-mark-width-lg: 7px;
+  --wick-mark-height-lg: 26px;
+
+  /* ---- Motion ------------------------------------------------------------ */
+  --wick-transition: all 0.18s ease;
+}
+
+/*
+ * Defined in both artboards but never applied in either. Carried over because
+ * it is part of the design's intent for a live relay indicator, and dropping it
+ * would lose that. If M6 ships without using it, delete it.
+ */
+@keyframes wick-relaypulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --wick-transition: none;
+  }
+}

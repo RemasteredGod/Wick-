@@ -6,6 +6,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -21,11 +22,10 @@
     "noUnusedParameters": true,
     "exactOptionalPropertyTypes": true,
 
-    "types": ["chrome", "vite/client"],
+    "types": ["chrome", "node", "vite/client"],
 
-    "baseUrl": ".",
     "paths": {
-      "~/*": ["src/*"]
+      "~/*": ["./src/*"]
     }
   },
   "include": ["src", "tests", "vite.config.ts"]

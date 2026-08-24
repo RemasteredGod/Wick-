@@ -1,0 +1,164 @@
+/*
+ * Styles for the injected sidebar card and its floating panel.
+ *
+ * Loaded into a shadow root, never into the page. claude.ai's stylesheet does
+ * not reach in and these rules do not reach out — which is the only way to be a
+ * guest in someone else's navigation without eventually breaking it.
+ *
+ * Values match the in-situ artboard rather than the spec artboard, because this
+ * is the surface that artboard was drawn for.
+ */
+
+:host {
+  all: initial;
+  display: block;
+  font-family: var(--wick-font);
+  color: var(--wick-text);
+}
+
+.wick-root {
+  position: relative;
+  font-family: var(--wick-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wick-root *,
+.wick-root *::before,
+.wick-root *::after {
+  box-sizing: border-box;
+}
+
+/* ---- Collapsed card ------------------------------------------------------ */
+
+.wick-card {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-9);
+  border-radius: var(--wick-radius-callout);
+  background: var(--wick-surface);
+  border: 1px solid var(--wick-border-card);
+  padding: var(--wick-space-9) var(--wick-space-11);
+  cursor: pointer;
+  transition: var(--wick-transition);
+}
+
+.wick-card:hover {
+  border-color: var(--wick-border-hover);
+}
+
+.wick-card:focus-visible {
+  outline: 1px solid var(--wick-border-focus);
+  outline-offset: 1px;
+}
+
+.wick-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wick-card__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-7);
+}
+
+.wick-card__name {
+  font-size: var(--wick-size-label);
+  color: var(--wick-text-secondary);
+  letter-spacing: var(--wick-tracking-label);
+}
+
+.wick-card__chevron {
+  font-size: var(--wick-size-eyebrow);
+  color: var(--wick-text-faint);
+}
+
+.wick-card__meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-6);
+}
+
+/* ---- Floating panel ------------------------------------------------------ *
+ * The archive positions this at a fixed offset measured against the canvas —
+ * left:302px, just clear of a 290px sidebar. Here it anchors to the card
+ * instead, which is the same intent expressed against a real page whose
+ * sidebar can be any width. It opens beside the navigation rather than over
+ * it, so the chat list stays readable behind it.                              */
+
+.wick-panel--floating {
+  position: absolute;
+  top: 0;
+  left: calc(100% + var(--wick-space-12));
+  z-index: 2147483000;
+  width: var(--wick-panel-width);
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--wick-surface);
+  border: 1px solid var(--wick-border-strong);
+  border-radius: var(--wick-radius-panel);
+  box-shadow: var(--wick-shadow-panel-lg);
+}
+
+.wick-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--wick-space-14) var(--wick-space-18);
+  border-bottom: 1px solid var(--wick-border);
+}
+
+.wick-panel__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-9);
+}
+
+.wick-panel__title {
+  font-size: var(--wick-size-title);
+}
+
+.wick-panel__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-10);
+}
+
+.wick-panel__close {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--wick-size-title);
+  line-height: 1;
+  color: var(--wick-text-faint);
+  cursor: pointer;
+  padding: 0;
+  transition: var(--wick-transition);
+}
+
+.wick-panel__close:hover {
+  color: var(--wick-text-primary);
+}
+
+.wick-panel__body {
+  padding: var(--wick-space-16) var(--wick-space-18);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-15);
+}
+
+.wick-panel__footer {
+  display: flex;
+  gap: var(--wick-space-8);
+  padding: var(--wick-space-13) var(--wick-space-18);
+  border-top: 1px solid var(--wick-border);
+}

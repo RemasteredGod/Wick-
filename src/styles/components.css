@@ -1,0 +1,343 @@
+/*
+ * Component styles shared by both surfaces — the popup and the card injected
+ * into claude.ai's sidebar.
+ *
+ * Every value is a --wick-* token. See AGENTS.md: no raw colours, sizes, radii
+ * or spacing anywhere in this codebase, and no restyling of what the archive
+ * already decided.
+ *
+ * This file assumes tokens.css is in scope. The popup imports both; the content
+ * script inlines both into its shadow root.
+ */
+
+/* ---- The mark ----------------------------------------------------------- */
+
+.wick-mark {
+  display: block;
+  flex: none;
+}
+
+/* The rounded square the panel header sets the mark inside. */
+.wick-mark-badge {
+  width: var(--wick-mark-badge-size);
+  height: var(--wick-mark-badge-size);
+  flex: none;
+  border-radius: var(--wick-radius-row);
+  background: var(--wick-surface-icon);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- Threshold state ----------------------------------------------------- *
+ * One rule per state, applied to whatever carries the colour. Nothing else in
+ * the interface may use warn or crit — if they appear decoratively the warning
+ * stops meaning anything.                                                     */
+
+.wick-state-ok {
+  color: var(--wick-text);
+}
+.wick-state-warn {
+  color: var(--wick-warn);
+}
+.wick-state-crit {
+  color: var(--wick-crit);
+}
+.wick-state-unknown {
+  color: var(--wick-text-dim);
+}
+
+.wick-fill-ok {
+  background: var(--wick-accent);
+}
+.wick-fill-warn {
+  background: var(--wick-warn);
+}
+.wick-fill-crit {
+  background: var(--wick-crit);
+}
+.wick-fill-unknown {
+  background: var(--wick-track);
+}
+
+/* ---- Usage meter --------------------------------------------------------- */
+
+.wick-meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-7);
+}
+
+.wick-meter__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.wick-meter__label {
+  font-size: var(--wick-size-row);
+  color: var(--wick-text-primary);
+}
+
+.wick-meter__value {
+  font-family: var(--wick-font-mono);
+  font-size: var(--wick-size-row);
+}
+
+.wick-meter__track {
+  height: var(--wick-bar-height-lg);
+  border-radius: var(--wick-radius-bar-lg);
+  background: var(--wick-track);
+  overflow: hidden;
+}
+
+.wick-meter__fill {
+  height: 100%;
+}
+
+.wick-meter__reset {
+  font-size: var(--wick-size-note);
+  color: var(--wick-text-dim);
+}
+
+/* Compact variant, for the injected sidebar card. */
+.wick-meter--compact {
+  gap: var(--wick-space-6);
+}
+
+.wick-meter--compact .wick-meter__head {
+  font-size: var(--wick-size-meta);
+  color: var(--wick-text-dim);
+}
+
+.wick-meter--compact .wick-meter__label {
+  font-size: var(--wick-size-meta);
+  color: var(--wick-text-dim);
+}
+
+.wick-meter--compact .wick-meter__value {
+  font-size: var(--wick-size-meta);
+}
+
+/* The collapsed card sits in someone else's navigation, so its healthy state
+ * steps back a shade rather than using the panel's full-contrast white. */
+.wick-meter--compact .wick-state-ok {
+  color: var(--wick-text-secondary);
+}
+
+.wick-meter--compact .wick-meter__track {
+  height: var(--wick-bar-height);
+  border-radius: var(--wick-radius-bar);
+  background: var(--wick-track-alt);
+}
+
+/* ---- Projection callout -------------------------------------------------- *
+ * The one sentence that is the whole product. Everything else on the panel is
+ * evidence for it.                                                            */
+
+.wick-projection {
+  border: 1px solid var(--wick-warn-border);
+  background: var(--wick-warn-bg);
+  border-radius: var(--wick-radius-callout);
+  padding: var(--wick-space-11) var(--wick-space-13);
+  font-size: var(--wick-size-body);
+  line-height: var(--wick-leading-tight);
+  color: var(--wick-warn-text);
+  text-wrap: pretty;
+}
+
+.wick-projection strong {
+  color: var(--wick-warn-text-strong);
+  font-weight: 600;
+}
+
+.wick-projection--crit {
+  border-color: var(--wick-crit-border);
+  background: var(--wick-crit-bg);
+  color: var(--wick-crit-text);
+}
+
+.wick-projection--crit strong {
+  color: var(--wick-crit-text-strong);
+}
+
+/* No estimate yet. Deliberately not styled as a warning: "we don't know" is a
+ * neutral state, and dressing it in warn colours would cry wolf. */
+.wick-projection--unknown {
+  border-color: var(--wick-border-stat);
+  background: transparent;
+  color: var(--wick-text-dim);
+}
+
+.wick-projection--unknown strong {
+  color: var(--wick-text-secondary);
+}
+
+/* ---- Stat tiles ---------------------------------------------------------- */
+
+.wick-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--wick-space-8);
+}
+
+.wick-stat {
+  border: 1px solid var(--wick-border-stat);
+  border-radius: var(--wick-radius-callout);
+  padding: var(--wick-space-10) var(--wick-space-11);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-3);
+}
+
+.wick-stat__label {
+  font-size: var(--wick-size-eyebrow);
+  color: var(--wick-text-dim);
+  letter-spacing: var(--wick-tracking-wide);
+}
+
+.wick-stat__value {
+  font-family: var(--wick-font-mono);
+  font-size: var(--wick-size-stat);
+}
+
+/* ---- History strip ------------------------------------------------------- */
+
+.wick-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-6);
+}
+
+.wick-history__bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--wick-space-6);
+  height: var(--wick-history-height);
+}
+
+.wick-history__bar {
+  flex: 1;
+  border-radius: var(--wick-radius-mark);
+  background: var(--wick-history-bar);
+  min-height: 1px;
+}
+
+.wick-history__bar--recent {
+  background: var(--wick-history-bar-recent);
+}
+
+.wick-history__bar--today {
+  background: var(--wick-accent);
+}
+
+/* A day with no reading. Outlined rather than filled, so a gap in the record
+ * reads as a gap and not as a quiet day. */
+.wick-history__bar--empty {
+  background: transparent;
+  border: 1px dashed var(--wick-border-stat);
+}
+
+.wick-history__labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--wick-font-mono);
+  font-size: var(--wick-size-micro);
+  color: var(--wick-text-faint);
+}
+
+/* ---- Telegram ------------------------------------------------------------ */
+
+.wick-telegram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wick-space-6);
+}
+
+.wick-telegram__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wick-telegram__title {
+  font-size: var(--wick-size-body-lg);
+  color: var(--wick-text-primary);
+}
+
+.wick-telegram__status {
+  display: flex;
+  align-items: center;
+  gap: var(--wick-space-6);
+  font-size: var(--wick-size-meta);
+  font-family: var(--wick-font-mono);
+  color: var(--wick-ok);
+}
+
+.wick-telegram__status--off {
+  color: var(--wick-text-dim);
+}
+
+.wick-telegram__dot {
+  width: var(--wick-space-5);
+  height: var(--wick-space-5);
+  border-radius: var(--wick-radius-pill);
+  background: currentColor;
+}
+
+.wick-telegram__note {
+  font-size: var(--wick-size-note);
+  line-height: var(--wick-leading-tight);
+  color: var(--wick-text-dim);
+}
+
+/* ---- Shared furniture ---------------------------------------------------- */
+
+.wick-rule {
+  height: 1px;
+  background: var(--wick-border);
+}
+
+.wick-badge {
+  font-size: var(--wick-size-meta);
+  font-family: var(--wick-font-mono);
+  color: var(--wick-text-tertiary);
+  border: 1px solid var(--wick-border-control);
+  border-radius: var(--wick-radius-pill);
+  padding: var(--wick-space-4) var(--wick-space-10);
+}
+
+.wick-button {
+  appearance: none;
+  font: inherit;
+  text-align: center;
+  border: 1px solid var(--wick-border-control);
+  border-radius: var(--wick-radius-control);
+  background: transparent;
+  padding: var(--wick-space-9);
+  font-size: var(--wick-size-body-lg);
+  color: var(--wick-text-primary);
+  cursor: pointer;
+  transition: var(--wick-transition);
+}
+
+.wick-button:hover {
+  background: var(--wick-surface-hover);
+}
+
+.wick-button:focus-visible {
+  outline: 1px solid var(--wick-border-focus);
+  outline-offset: 1px;
+}
+
+.wick-button--grow {
+  flex: 1;
+}
+
+.wick-button--icon {
+  width: var(--wick-icon-button-width);
+  flex: none;
+  padding: var(--wick-space-9) 0;
+  color: var(--wick-text-tertiary);
+}

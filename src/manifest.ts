@@ -1,5 +1,5 @@
 import { defineManifest } from '@crxjs/vite-plugin';
-import pkg from '../package.json';
+import pkg from '../package.json' with { type: 'json' };
 
 /**
  * Wick supports Chrome in v1. Firefox is a later diff, not a rewrite, so every
