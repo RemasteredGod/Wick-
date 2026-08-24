@@ -58,10 +58,40 @@ export type RuntimeMessage =
   | { type: 'wick:message-sent'; at: number }
   /** Poll now. Sent when the popup opens, so it never shows a stale number. */
   | { type: 'wick:refresh' }
-  | { type: 'wick:get-state' };
+  | { type: 'wick:get-state' }
+  /**
+   * Redeem a connect code for a relay token.
+   *
+   * The popup collects the code and requests the host permission — that call
+   * needs a user gesture and a service worker does not have one — but the
+   * exchange itself happens in the worker, which owns the relay client and the
+   * settings write. Presentation never fetches.
+   */
+  | { type: 'wick:relay-connect'; code: string }
+  /** Revoke this installation's relay token and forget it locally. */
+  | { type: 'wick:relay-disconnect' };
+
+/**
+ * How a connect attempt ended.
+ *
+ * A boundary type rather than a view type: the worker decides it, the settings
+ * screen renders it, and neither gets to invent a value the other has not
+ * heard of. Deliberately coarser than `RelayFailure` — the user can act on
+ * "the code was stale" and on "grant the permission", and every remaining
+ * failure is the same sentence to them.
+ */
+export type RelayConnectOutcome =
+  | 'ok'
+  /** Unknown, expired, or already spent. Far more often stale than mistyped. */
+  | 'invalid-code'
+  /** The relay could not be reached. */
+  | 'unavailable'
+  /** The user declined the host permission the relay call needs. */
+  | 'not-permitted';
 
 export type RuntimeResponse =
   | { ok: true; state: WickState }
+  | { ok: true; outcome: RelayConnectOutcome }
   | { ok: true }
   | { ok: false; error: string };
 
@@ -73,6 +103,8 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:stream-limits' ||
     type === 'wick:message-sent' ||
     type === 'wick:refresh' ||
-    type === 'wick:get-state'
+    type === 'wick:get-state' ||
+    type === 'wick:relay-connect' ||
+    type === 'wick:relay-disconnect'
   );
 }

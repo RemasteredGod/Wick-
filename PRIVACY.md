@@ -36,8 +36,18 @@ extension storage, which is trivially extractable. Your installation holds a
 per-user token you can revoke; it never holds a bot credential. See
 [`docs/decisions/0002-telegram-relay-not-bot-token.md`](docs/decisions/0002-telegram-relay-not-bot-token.md).
 
-The relay is not built yet. When it is, this file will say exactly what it
-stores and how to delete it.
+The relay service is designed but not deployed yet. What it will store, what it
+will not store, and how to delete it are written down in
+[`docs/decisions/0003-telegram-relay-design.md`](docs/decisions/0003-telegram-relay-design.md)
+— including the parts that are not flattering. In short: a hashed token, the
+Telegram chat to deliver to, and two day-granularity dates. No message text, no
+percentages, no send timestamps. This file will restate it plainly once the
+service exists.
+
+Wick cannot reach the relay at all until you allow it. The relay's origin is an
+*optional* host permission, requested from the Connect button in settings and
+nowhere else; decline it, or revoke it later in Chrome, and every relay call
+fails before it leaves your machine.
 
 ## What Wick reads from claude.ai
 
@@ -50,7 +60,8 @@ stores and how to delete it.
   log, or transmit message content.
 
 Host access is restricted to `https://claude.ai/*`. Wick cannot see any other
-site you visit.
+site you visit. The one other origin it can be granted — the Telegram relay —
+is optional, off until you ask for it, and described above.
 
 ## Deleting your data
 

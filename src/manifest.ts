@@ -12,6 +12,17 @@ const TARGET: 'chrome' | 'firefox' = 'chrome';
 /** Every claude.ai URL Wick is allowed to touch. Deliberately the only one. */
 const CLAUDE_MATCH = 'https://claude.ai/*';
 
+/**
+ * The Telegram relay's origin, as a match pattern.
+ *
+ * Spelled out rather than imported from `src/background/relay.ts`: this file is
+ * evaluated by Vite's config loader, which does not resolve the `~` alias that
+ * the background modules import through. It must stay identical to
+ * `RELAY_ORIGIN_PATTERN` there — a mismatch fails as an opaque network error,
+ * not as a permission error.
+ */
+const RELAY_MATCH = 'https://relay.wick.tools/*';
+
 export default defineManifest({
   manifest_version: 3,
   name: 'Wick',
@@ -33,6 +44,15 @@ export default defineManifest({
 
   // Never <all_urls>.
   host_permissions: [CLAUDE_MATCH],
+
+  // Optional, and requested from the Connect button rather than at install.
+  //
+  // `optional_host_permissions` is a manifest key, not a permission string: it
+  // adds nothing to the install-time prompt, so a user who never sets up
+  // Telegram is never asked for it and can revoke it in Chrome's own UI if they
+  // do. Every relay call is blocked until it is granted, which is the intended
+  // default. See docs/decisions/0003-telegram-relay-design.md.
+  optional_host_permissions: [RELAY_MATCH],
 
   action: {
     default_popup: 'src/popup/index.html',
