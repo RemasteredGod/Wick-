@@ -226,11 +226,14 @@ export interface DisplayOptions {
 /**
  * User settings.
  *
- * Note what is absent: there is no Telegram bot token here and there never will
- * be. `chrome.storage.local` is plain JSON on disk, and a bot token is an
- * unscoped bearer credential the user cannot contain once it leaks. What Wick
- * holds is a per-user relay token it can revoke.
- * See docs/decisions/0002-telegram-relay-not-bot-token.md.
+ * `botToken` is a Telegram bot token, and it is here deliberately.
+ * `chrome.storage.local` is plain JSON on disk, so this is not a vault — but
+ * the bot it governs was created by this user and talks to nobody but them,
+ * they revoke it themselves in @BotFather, and anyone able to read this file
+ * can already read the claude.ai session cookies beside it.
+ * See docs/decisions/0009-per-user-bot-tokens.md, which supersedes ADR 0002 for
+ * alerts and explains why that record's reasoning did not survive the move to
+ * per-user bots.
  */
 export interface Settings {
   /** Weekly percentage at which an alert fires. Archive offers 50/80/90/95. */
@@ -238,18 +241,21 @@ export interface Settings {
   /** Also send a message when a window rolls over. */
   alertOnReset: boolean;
   display: DisplayOptions;
-  /** Revocable per-user relay token, or null when alerts are not set up. */
-  relayToken: string | null;
+  /** The user's own bot token, or null when alerts are not set up. */
+  botToken: string | null;
+  /** The chat alerts go to. Discovered, never typed — see background/telegram.ts. */
+  chatId: number | null;
   /** Human label for where alerts land, for display only. */
-  relayLabel: string | null;
+  chatLabel: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   alertThreshold: 80,
   alertOnReset: true,
   display: { session: true, weekly: true, forecast: true, sparkline: true },
-  relayToken: null,
-  relayLabel: null,
+  botToken: null,
+  chatId: null,
+  chatLabel: null,
 };
 
 /** Thresholds the settings screen offers. From artboard 03. */

@@ -14,12 +14,13 @@ profile:
   limit window.
 - **Daily history** — the date, peak percentage per window, and a message count,
   used for the burn-rate projection.
-- **Settings** — display and alert preferences and, if connected, one revocable
-  relay token and an opaque Telegram label.
+- **Settings** — display and alert preferences and, if you set up alerts, the
+  Telegram bot token you created, the chat id it sends to, and a display label.
 
 It does not store conversation content, prompts, responses, or titles. By
-default it makes no request to Wick's relay: there is no analytics, telemetry,
-crash reporting, usage reporting, or phone-home on install or update.
+default it makes no network request other than to claude.ai: there is no
+analytics, telemetry, crash reporting, usage reporting, or phone-home on install
+or update.
 
 ## Optional Telegram alerts
 
@@ -27,16 +28,25 @@ If you connect Telegram, the extension sends an alert when a threshold or reset
 you configured occurs. The alert contains the percentage, pace, and projected
 exhaustion time shown locally. It contains no prompt, response, or project data.
 
-Alerts pass through `https://relay.usewick.lol` because storing Telegram's
-bot token in extension storage would expose a credential for every chat. Your
-installation instead holds a revocable token. The relay stores its SHA-256
-hash, the Telegram chat delivery address, and connection creation/last-use dates
-at day granularity. It does not store alert text, percentages, send timestamps,
-or send counts. See
-[`docs/decisions/0003-telegram-relay-design.md`](docs/decisions/0003-telegram-relay-design.md).
+**Alerts go straight from your browser to `https://api.telegram.org`. There is
+no Wick server in the path, and no operator who can see that you received an
+alert or when.**
 
-The relay origin is an optional Chrome host permission requested only from the
-Connect button. Declining or revoking it blocks relay requests without affecting
+This works because you create the bot yourself with @BotFather, and Wick stores
+that token in `chrome.storage.local`. Being straightforward about what that
+means: **extension storage is plain JSON on disk, not a vault.** Any program
+running as you can read it. Two things bound what that costs you — the bot is
+yours and talks to nobody but you, and anything able to read that file can
+already read your claude.ai session cookies sitting beside it. You can revoke
+the token at any time in @BotFather, which stops it working everywhere, not just
+here. See
+[`docs/decisions/0009-per-user-bot-tokens.md`](docs/decisions/0009-per-user-bot-tokens.md).
+
+Wick reads Telegram once, during setup, to learn which chat to send to — you are
+never asked to look up a chat id. After that it only ever sends.
+
+The Telegram origin is an optional Chrome host permission requested only from
+the Connect button. Declining or revoking it blocks alerts without affecting
 collection, projections, the toolbar icon, or local notifications.
 
 ## Optional Claude Code leaderboard
@@ -105,22 +115,27 @@ are not end-to-end encrypted.
 - The tail of completion responses, where claude.ai reports limit state. Wick
   extracts that event and discards the rest.
 
-Required host access is restricted to `https://claude.ai/*`. The optional relay
+Required host access is restricted to `https://claude.ai/*`. The optional Telegram
 origin is the only other host the extension can be granted.
 
 ## Deleting data
 
 - Removing the extension deletes its local browser storage.
-- Disconnect revokes one installation token locally and asks the relay to remove
-  that connection.
+- Disconnect forgets the bot token and chat id locally. It does not revoke the
+  bot — only @BotFather can do that, and doing so is worth it if you think the
+  token leaked.
+- The leaderboard is a separate, optional program with its own connection.
+  Removing the extension does not delete anything you submitted to it.
 - `wick-cc optout` or Telegram `/optout` deletes the public profile and all
   leaderboard rows while retaining alert connections.
 - `wick-cc forget`, authenticated `POST /v1/delete`, or Telegram `/forget`
   deletes all connections, unredeemed codes, leaderboard rows/profile, and
   pending digest state for that Telegram chat.
 
-Platform request logs expire on Cloudflare's retention schedule and are not
-removed by these application-level deletion operations.
+Alerts leave no server-side trace to delete: they go straight to Telegram, and
+no Wick server is in the path. The leaderboard's platform request logs expire on
+its host's retention schedule and are not removed by these application-level
+deletion operations.
 
 ## Verifying this
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { RELAY_ORIGIN_PATTERN } from '~/background/relay';
+import { TELEGRAM_ORIGIN_PATTERN } from '~/background/telegram';
 import { readState, writeSettings } from '~/background/store';
-import type { RelayConnectOutcome, RuntimeMessage, RuntimeResponse } from '~/core/messages';
+import type { ConnectOutcome, RuntimeMessage, RuntimeResponse } from '~/core/messages';
 import { DEFAULT_SETTINGS, type Settings, type WickState } from '~/core/types';
 
 /**
@@ -76,32 +76,33 @@ export function useWickState(): WickStateHandle {
 }
 
 /**
- * Redeem a connect code.
+ * Hand a pasted bot token to the worker.
  *
  * Two steps, in this order and in this place. The host permission is requested
  * here because `chrome.permissions.request` only works inside a user gesture,
  * and the Connect click is the only gesture Wick gets — a service worker has
- * none. The exchange itself is the worker's job: it owns the relay client and
- * the settings write, and the token never comes back across this boundary.
+ * none. The verification and chat lookup are the worker's job: it owns the
+ * Telegram client and the settings write, and the token makes one trip across
+ * this boundary and never comes back.
  *
  * A declined grant is a decision, not a failure. Nothing is written and the
  * user can grant it on the next attempt.
  */
-export async function connectRelay(code: string): Promise<RelayConnectOutcome> {
-  if (!(await grantRelayOrigin())) return 'not-permitted';
+export async function connectTelegram(botToken: string): Promise<ConnectOutcome> {
+  if (!(await grantTelegramOrigin())) return 'not-permitted';
 
-  const reply = await sendToWorker({ type: 'wick:relay-connect', code });
+  const reply = await sendToWorker({ type: 'wick:telegram-connect', botToken });
   if (reply === null || !reply.ok) return 'unavailable';
   return 'outcome' in reply ? reply.outcome : 'unavailable';
 }
 
-/** Revoke the relay token. Fire and forget; the settings write comes back through storage. */
-export function disconnectRelay(): void {
-  void sendToWorker({ type: 'wick:relay-disconnect' });
+/** Forget the token. Fire and forget; the settings write comes back through storage. */
+export function disconnectTelegram(): void {
+  void sendToWorker({ type: 'wick:telegram-disconnect' });
 }
 
 /**
- * Ask for the relay origin.
+ * Ask for the Telegram origin.
  *
  * Called synchronously from the click, with no `await` in front of it — not
  * even a `permissions.contains` check first. Chrome requires
@@ -110,9 +111,9 @@ export function disconnectRelay(): void {
  * been redundant anyway: `request` resolves `true` without prompting for a
  * permission the user has already granted.
  */
-async function grantRelayOrigin(): Promise<boolean> {
+async function grantTelegramOrigin(): Promise<boolean> {
   try {
-    return await chrome.permissions.request({ origins: [RELAY_ORIGIN_PATTERN] });
+    return await chrome.permissions.request({ origins: [TELEGRAM_ORIGIN_PATTERN] });
   } catch {
     // A browser without optional host permissions, or a call that has lost its
     // gesture. Either way Wick does not have the grant.

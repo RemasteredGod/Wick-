@@ -12,7 +12,7 @@ import { Projection } from './components/Projection';
 import { Settings } from './components/Settings';
 import { TelegramCard } from './components/TelegramCard';
 import { UsageMeter } from './components/UsageMeter';
-import { connectRelay, disconnectRelay, useWickState } from './useWickState';
+import { connectTelegram, disconnectTelegram, useWickState } from './useWickState';
 
 /**
  * The popup — artboard 02 of the design archive, at its own width.
@@ -44,8 +44,8 @@ export function App() {
       <Settings
         settings={state.settings}
         onChange={update}
-        onConnect={connectRelay}
-        onDisconnect={disconnectRelay}
+        onConnect={connectTelegram}
+        onDisconnect={disconnectTelegram}
         onClose={() => setSettingsOpen(false)}
         version={chrome.runtime.getManifest().version}
       />
@@ -121,7 +121,7 @@ export function App() {
         <div class="wick-rule" />
 
         <TelegramCard
-          connected={state.settings.relayToken !== null}
+          connected={state.settings.botToken !== null && state.settings.chatId !== null}
           threshold={state.settings.alertThreshold}
           alsoOnReset={state.settings.alertOnReset}
         />

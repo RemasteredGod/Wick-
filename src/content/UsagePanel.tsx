@@ -168,7 +168,7 @@ export function UsagePanel({
           <div class="wick-rule" />
 
           <TelegramCard
-            connected={settings.relayToken !== null}
+            connected={settings.botToken !== null && settings.chatId !== null}
             threshold={settings.alertThreshold}
             alsoOnReset={settings.alertOnReset}
           />

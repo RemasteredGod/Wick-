@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { RelayConnectOutcome } from '~/core/messages';
+import type { ConnectOutcome as BoundaryOutcome } from '~/core/messages';
 import { ALERT_THRESHOLD_CHOICES, type DisplayOptions, type Settings } from '~/core/types';
 
 /**
@@ -21,7 +21,7 @@ const KOFI_URL = `https://${KOFI_HANDLE}`;
  * Defined at the boundary rather than here, so the two ends cannot disagree
  * about what the possible answers are.
  */
-export type ConnectOutcome = RelayConnectOutcome;
+export type ConnectOutcome = BoundaryOutcome;
 
 /** Labels for the display toggles, in the archive's order (ext:339). */
 const DISPLAY_OPTIONS: ReadonlyArray<{ key: keyof DisplayOptions; label: string }> = [
@@ -36,13 +36,13 @@ interface SettingsProps {
   /** Applied immediately. There is no Save button; see the note below. */
   onChange(patch: Partial<Settings>): void;
   /**
-   * Redeem a connect code. Presentation never fetches — the view collects the
-   * code and hands it to the worker, which owns the relay client and the
-   * storage write. Absent means the connect flow is not wired up yet, and the
-   * field is disabled rather than pretending to work.
+   * Hand a pasted bot token to the worker. Presentation never fetches — the
+   * view collects the token and the worker verifies it, finds the chat and
+   * writes settings. Absent means the flow is not wired up here, and the field
+   * is disabled rather than pretending to work.
    */
-  onConnect?: (code: string) => Promise<ConnectOutcome>;
-  /** Revoke the relay token and clear it locally. */
+  onConnect?: (botToken: string) => Promise<ConnectOutcome>;
+  /** Forget the token and chat locally. Nothing is revoked — see ADR 0009. */
   onDisconnect?: () => void;
   /** Leave the settings view. */
   onClose?: () => void;
@@ -81,16 +81,18 @@ export function Settings({
   onClose,
   version,
 }: SettingsProps) {
-  const [code, setCode] = useState('');
+  const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const connected = settings.relayToken !== null;
+  // Both halves must be present. A token with no chat has nowhere to send, and
+  // showing it as connected would be a lie the user only discovers at 80%.
+  const connected = settings.botToken !== null && settings.chatId !== null;
 
-  async function submitCode(): Promise<void> {
+  async function submitToken(): Promise<void> {
     if (onConnect === undefined || busy) return;
 
-    const trimmed = code.trim();
+    const trimmed = token.trim();
     if (trimmed === '') return;
 
     setBusy(true);
@@ -99,7 +101,10 @@ export function Settings({
     setBusy(false);
 
     if (outcome === 'ok') {
-      setCode('');
+      // Cleared on success only. A token that failed for a fixable reason —
+      // the user has not messaged their bot yet — should still be sitting
+      // there when they press Connect again.
+      setToken('');
       return;
     }
     setProblem(PROBLEM_COPY[outcome]);
@@ -137,7 +142,7 @@ export function Settings({
                 class={`wick-telegram__status${connected ? '' : ' wick-telegram__status--off'}`}
               >
                 <span class="wick-telegram__dot" />
-                {connected ? (settings.relayLabel ?? 'Connected') : 'Not connected'}
+                {connected ? (settings.chatLabel ?? 'Connected') : 'Not connected'}
               </span>
 
               {connected && onDisconnect !== undefined && (
@@ -153,33 +158,33 @@ export function Settings({
 
             {connected ? (
               <p class="wick-settings__note">
-                Alerts go through the relay, which holds no usage history. Disconnecting revokes
-                this installation&rsquo;s token.
+                Alerts go straight to your own bot. No server sees them. Disconnecting forgets the
+                token here &mdash; to kill the bot itself, revoke it in @BotFather.
               </p>
             ) : (
               <form
                 class="wick-settings__field"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void submitCode();
+                  void submitToken();
                 }}
               >
                 <div class="wick-settings__row">
                   <input
                     type="text"
                     class="wick-settings__input"
-                    placeholder="Connect code"
-                    value={code}
+                    placeholder="Bot token from @BotFather"
+                    value={token}
                     disabled={onConnect === undefined || busy}
                     autocomplete="off"
                     spellcheck={false}
-                    aria-label="Connect code"
-                    onInput={(event) => setCode(event.currentTarget.value)}
+                    aria-label="Telegram bot token"
+                    onInput={(event) => setToken(event.currentTarget.value)}
                   />
                   <button
                     type="submit"
                     class="wick-button wick-settings__inline-button wick-settings__primary"
-                    disabled={onConnect === undefined || busy || code.trim() === ''}
+                    disabled={onConnect === undefined || busy || token.trim() === ''}
                   >
                     {busy ? 'Connecting' : 'Connect'}
                   </button>
@@ -187,12 +192,12 @@ export function Settings({
 
                 <p class="wick-settings__note">
                   {onConnect === undefined ? (
-                    'Connect from the Wick popup in your toolbar. Granting access to the relay needs a permission prompt, and only the popup can raise one.'
+                    'Connect from the Wick popup in your toolbar. Granting access to Telegram needs a permission prompt, and only the popup can raise one.'
                   ) : (
                     <>
-                      Message the Wick bot on Telegram, send <code>/start</code>, and paste the code
-                      it replies with. Wick never holds a bot token &mdash; the code becomes a
-                      per-user token you can revoke.
+                      Message <strong>@BotFather</strong>, send <code>/newbot</code>, and paste the
+                      token it gives you. Then send your new bot any message &mdash; Telegram will
+                      not let it write to you first &mdash; and press Connect.
                     </>
                   )}
                 </p>
@@ -321,9 +326,12 @@ export function Settings({
  * with that rather than implying the user cannot type.
  */
 const PROBLEM_COPY: Record<Exclude<ConnectOutcome, 'ok'>, string> = {
-  'invalid-code': 'That code did not work. Codes expire after a few minutes — ask the bot for a new one.',
-  unavailable: 'Could not reach the relay. Nothing was changed.',
-  'not-permitted': 'Wick needs permission to reach the relay before it can connect.',
+  'bad-token': 'Telegram did not accept that token. Copy it again from @BotFather.',
+  // The commonest first attempt, and the only one where nothing is wrong —
+  // the user simply has a step left to do. Worded as an instruction, not an error.
+  'no-chat': 'Send your bot a message on Telegram, then press Connect again.',
+  unavailable: 'Could not reach Telegram. Nothing was changed.',
+  'not-permitted': 'Wick needs permission to reach Telegram before it can connect.',
 };
 
 /**

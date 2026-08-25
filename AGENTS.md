@@ -66,9 +66,13 @@ Everything in `docs/protocol.md` is undocumented and will break.
   stops writing daily rollups.
 - Nothing leaves the user's machine except an explicit Telegram alert the
   user configured. No analytics, no telemetry, no crash reporting.
-- Never store a Telegram bot token in `chrome.storage` — extension storage is
-  trivially extractable. Alerts go through the relay service with a
-  per-user token that can be revoked.
+- **Never store a *shared* Telegram bot token in `chrome.storage`.** Extension
+  storage is plain JSON on disk, and one shared token leaks every connected
+  chat at once with only an operator able to revoke it.
+  A **per-user** token — a bot the user created, that talks to nobody but them,
+  that they revoke in @BotFather — is permitted, and is how alerts ship.
+  See `docs/decisions/0009-per-user-bot-tokens.md`, which supersedes ADR 0002
+  for alerts and explains why the shared-token reasoning did not carry over.
 
 ## Design fidelity
 

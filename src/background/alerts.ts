@@ -1,5 +1,5 @@
 /**
- * Threshold alerts: local notifications, and Telegram via the relay.
+ * Threshold alerts: local notifications, and Telegram directly.
  *
  * Three message types, at most one per event — a threshold crossing, a window
  * rolling over, and a weekly summary. That ceiling is the feature: a tracker
@@ -13,13 +13,13 @@
  * cycle?" is answerable from storage every time.
  *
  * Never holds a Telegram bot token. See
- * docs/decisions/0002-telegram-relay-not-bot-token.md, and
- * docs/decisions/0003-telegram-relay-design.md for what the relay is.
+ * docs/decisions/0009-per-user-bot-tokens.md for why alerts go straight to
+ * api.telegram.org with the user's own bot token.
  *
  * Nothing in this file may throw into the service worker.
  */
 
-import { isRuntimeMessage, type RelayConnectOutcome, type RuntimeResponse } from '~/core/messages';
+import { isRuntimeMessage, type ConnectOutcome, type RuntimeResponse } from '~/core/messages';
 import { field, localDateKey } from '~/core/normalise';
 import { project } from '~/core/projection';
 import { allowanceWindow } from '~/core/windows';
@@ -33,7 +33,7 @@ import type {
   Settings,
   WindowRole,
 } from '~/core/types';
-import { connect, revoke, send, type RelayFailure } from './relay';
+import { discoverChat, send, verifyToken, type TelegramFailure } from './telegram';
 import {
   KEYS,
   readAccountId,
@@ -68,7 +68,7 @@ const DAY_MS = 86_400_000;
  * leaves the collector's listener free to answer the rest.
  */
 export function initAlerts(): void {
-  chrome.runtime.onMessage.addListener(handleRelayMessage);
+  chrome.runtime.onMessage.addListener(handleTelegramMessage);
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -447,15 +447,16 @@ async function dispatch(alert: PendingAlert, settings: Settings, now: number): P
 
   await notify(alert.text);
 
-  // The relay is optional and always second. The local path works today under
-  // the existing `notifications` permission; the relay needs a host permission
-  // the extension does not yet have. See ADR 0003.
-  if (settings.relayToken === null) return;
+  // Telegram is optional and always second. The local path works under the
+  // existing `notifications` permission; sending needs a host permission the
+  // user may never have granted. Both halves must be present — a token with no
+  // chat has nowhere to go. See ADR 0009.
+  if (settings.botToken === null || settings.chatId === null) return;
 
   try {
     // The result is deliberately unused: there is no retry, no queue, and no
     // fallback. A late threshold warning is worse than a missing one, and a
-    // retry storm is how the relay gets itself blocked for everyone.
+    // retry storm is how a bot gets itself rate limited.
     await send({ kind: alert.kind, text: alert.text });
   } catch {
     // `send` returns failures rather than throwing, so this is only reachable
@@ -500,27 +501,27 @@ async function notify(text: string): Promise<void> {
 
 /* ---- The connect flow ---------------------------------------------------- *
  * Redeeming a code and revoking a token are the two writes to
- * `Settings.relayToken`, and they live here rather than in the popup because
+ * the Telegram settings, and they live here rather than in the popup because
  * presentation never fetches. The popup asks for the host permission — that
  * needs a user gesture, and a service worker does not have one — and then hands
  * the code over.                                                              */
 
 /**
- * Answer the two relay messages. Returns `false` for anything else, so the
+ * Answer the two Telegram messages. Returns `false` for anything else, so the
  * collector's listener still sees it.
  *
  * Exported for tests, which drive it directly: the reply is asynchronous, and
  * the reply is the whole point.
  */
-export function handleRelayMessage(
+export function handleTelegramMessage(
   message: unknown,
   _sender: chrome.runtime.MessageSender,
   sendResponse: (response: RuntimeResponse) => void,
 ): boolean {
   if (!isRuntimeMessage(message)) return false;
 
-  if (message.type === 'wick:relay-connect') {
-    void redeem(message.code)
+  if (message.type === 'wick:telegram-connect') {
+    void connectBot(message.botToken)
       .then((outcome) => sendResponse({ ok: true, outcome }))
       // `redeem` does not throw, but a storage write that fails would land
       // here, and the settings screen needs an answer either way.
@@ -528,7 +529,7 @@ export function handleRelayMessage(
     return true;
   }
 
-  if (message.type === 'wick:relay-disconnect') {
+  if (message.type === 'wick:telegram-disconnect') {
     void disconnect()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: true }));
@@ -539,45 +540,63 @@ export function handleRelayMessage(
 }
 
 /**
- * Exchange a connect code for a token and store it.
+ * Verify a pasted token, find the chat, and store both.
  *
- * The token is written here and read only by `relay.send`. Nothing else in Wick
- * touches it, and it never reaches the popup — the settings screen renders
- * `relayLabel` and the fact that a token exists, not the token.
+ * Two calls, in this order, and nothing is written until both succeed. A token
+ * stored without a chat looks connected on the settings screen and silently
+ * sends nothing, which is the worst of the available failures.
+ *
+ * The token is written here and read only by `telegram.send`. Nothing else in
+ * Wick touches it, and it never travels back to the popup — the settings screen
+ * renders `chatLabel` and the fact that a token exists, not the token.
  */
-async function redeem(code: string): Promise<RelayConnectOutcome> {
-  const result = await connect(code);
-  if (!result.ok) return outcomeFor(result.failure);
+async function connectBot(botToken: string): Promise<ConnectOutcome> {
+  const trimmed = botToken.trim();
+  if (trimmed === '') return 'bad-token';
 
-  await writeSettings({ relayToken: result.value.token, relayLabel: result.value.label });
+  const verified = await verifyToken(trimmed);
+  if (!verified.ok) return outcomeFor(verified.failure);
+
+  const chat = await discoverChat(trimmed);
+  if (!chat.ok) return outcomeFor(chat.failure);
+
+  await writeSettings({
+    botToken: trimmed,
+    chatId: chat.value.chatId,
+    chatLabel: chat.value.label,
+  });
   return 'ok';
 }
 
 /**
- * Revoke the token, then forget it locally — in that order, because `revoke`
- * reads the token out of the same field it is about to be cleared from.
+ * Forget the token and the chat.
  *
- * The local clear happens whatever the relay answers. Refusing to disconnect
- * because a server is unreachable would leave the user connected to something
- * they have just said they want no part of; the orphaned row expires on its own.
+ * There is nothing to revoke and nobody to tell: the bot belongs to the user,
+ * and Wick forgetting a token does not invalidate it. If they want it dead they
+ * revoke it in @BotFather, which the settings screen says rather than implying
+ * this button did it.
  */
 async function disconnect(): Promise<void> {
-  await revoke();
-  await writeSettings({ relayToken: null, relayLabel: null });
+  await writeSettings({ botToken: null, chatId: null, chatLabel: null });
 }
 
 /**
  * Which failures the user can act on.
  *
- * Only two distinctions are worth making to them: the code was stale, or it was
- * not the code's fault. `offline` is the shape a missing host permission takes
- * — the request never leaves the worker — but by the time a connect is
- * attempted the popup has already asked for that grant, so reporting it as
- * "could not reach the relay" is the honest reading rather than a guess about
- * permissions.
+ * Three distinctions are worth making: the token is wrong, the user has not
+ * messaged their bot yet, and everything else. The middle one is the commonest
+ * outcome of a first attempt and the only one where the fix is a step the user
+ * has not taken rather than a mistake they have made.
+ *
+ * `offline` is also the shape a missing host permission takes — the request
+ * never leaves the worker — but by the time a connect is attempted the popup
+ * has already asked for that grant, so reading it as "could not reach
+ * Telegram" is honest rather than a guess about permissions.
  */
-function outcomeFor(failure: RelayFailure): RelayConnectOutcome {
-  return failure === 'rejected' ? 'invalid-code' : 'unavailable';
+function outcomeFor(failure: TelegramFailure): ConnectOutcome {
+  if (failure === 'bad-token') return 'bad-token';
+  if (failure === 'no-chat') return 'no-chat';
+  return 'unavailable';
 }
 
 /* ---- Guards -------------------------------------------------------------- *

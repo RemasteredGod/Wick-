@@ -46,11 +46,12 @@ Early, but no longer a shell. The extension builds, loads, collects, projects
 and draws its own toolbar gauge, and every number on screen comes from
 `chrome.storage.local` rather than from a placeholder.
 
-Two things still require operator or account access outside this repository: the
-protocol has not been checked against live traffic, and the Cloudflare relay has
-not been deployed. The relay, D1 schema, bot commands, public page, digest, and
-standalone reporter are implemented in their sibling projects. Until live
-protocol verification is done, treat extension readings as provisional —
+Alerts need no server: you create a bot with @BotFather and Wick posts to it
+directly (ADR 0009). One thing still requires account access outside this
+repository — the protocol has not been checked against live traffic. The
+leaderboard, its relay and the standalone reporter are v2 and not required to
+run the extension. Until live protocol verification is done, treat extension
+readings as provisional —
 `docs/protocol.md` is a hypothesis about undocumented behaviour, and it says so
 on its first line.
 
@@ -61,7 +62,7 @@ on its first line.
 | M3 | Real data — collector, store, polling — done |
 | M4 | Daily history and the projection engine — done |
 | M5 | Toolbar gauge rendering — done |
-| M6 | Telegram relay — extension and Worker implemented at `relay.usewick.lol`; deployment outstanding |
+| M6 | Telegram alerts — direct to the user's own bot, no server (ADR 0009) — done |
 | M7 | Claude Code reporter and self-reported leaderboard — implemented; deployment and package publication outstanding |
 
 Gemini and ChatGPT support, and cross-model conversation handoff, are on the
@@ -107,7 +108,7 @@ pnpm test
 Host access is `https://claude.ai/*` and nothing else. Wick does not request
 `<all_urls>`.
 
-One host permission is *optional*: the Telegram relay's origin. It is not part
+One host permission is *optional*: `api.telegram.org`. It is not part
 of the install prompt, and Wick asks for it from the Connect button in settings
 — so if you never set up Telegram alerts you are never asked, and if you change
 your mind Chrome lets you take it back. Everything else in the extension works

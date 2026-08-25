@@ -13,15 +13,19 @@ const TARGET: 'chrome' | 'firefox' = 'chrome';
 const CLAUDE_MATCH = 'https://claude.ai/*';
 
 /**
- * The Telegram relay's origin, as a match pattern.
+ * The Telegram Bot API origin, as a match pattern.
  *
- * Spelled out rather than imported from `src/background/relay.ts`: this file is
- * evaluated by Vite's config loader, which does not resolve the `~` alias that
- * the background modules import through. It must stay identical to
- * `RELAY_ORIGIN_PATTERN` there — a mismatch fails as an opaque network error,
- * not as a permission error.
+ * Spelled out rather than imported from `src/background/telegram.ts`: this file
+ * is evaluated by Vite's config loader, which does not resolve the `~` alias
+ * that the background modules import through. It must stay identical to
+ * `TELEGRAM_ORIGIN_PATTERN` there — a mismatch fails as an opaque network
+ * error, not as a permission error.
+ *
+ * Broader than the relay origin it replaced: this lets Wick talk to any bot,
+ * not one fixed host. That is inherent to per-user bot tokens (ADR 0009) and is
+ * a Web Store review point worth expecting.
  */
-const RELAY_MATCH = 'https://relay.usewick.lol/*';
+const TELEGRAM_MATCH = 'https://api.telegram.org/*';
 
 export default defineManifest({
   manifest_version: 3,
@@ -52,7 +56,7 @@ export default defineManifest({
   // Telegram is never asked for it and can revoke it in Chrome's own UI if they
   // do. Every relay call is blocked until it is granted, which is the intended
   // default. See docs/decisions/0003-telegram-relay-design.md.
-  optional_host_permissions: [RELAY_MATCH],
+  optional_host_permissions: [TELEGRAM_MATCH],
 
   action: {
     default_popup: 'src/popup/index.html',

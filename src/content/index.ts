@@ -21,7 +21,7 @@ import { h, render } from 'preact';
 import { useState } from 'preact/hooks';
 import { project } from '~/core/projection';
 import { allowanceWindow } from '~/core/windows';
-import { disconnectRelay, useWickState } from '~/popup/useWickState';
+import { disconnectTelegram, useWickState } from '~/popup/useWickState';
 import { SidebarCard } from './SidebarCard';
 import { UsagePanel } from './UsagePanel';
 import { initBridge } from './bridge';
@@ -89,7 +89,7 @@ function Panel() {
     projection,
     settings: state.settings,
     onChange: update,
-    onDisconnect: disconnectRelay,
+    onDisconnect: disconnectTelegram,
     now,
   });
 }

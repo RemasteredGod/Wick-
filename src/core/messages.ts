@@ -87,38 +87,45 @@ export type RuntimeMessage =
   | { type: 'wick:tab-open' }
   | { type: 'wick:get-state' }
   /**
-   * Redeem a connect code for a relay token.
+   * Verify a pasted bot token, find the chat, and store both.
    *
-   * The popup collects the code and requests the host permission — that call
-   * needs a user gesture and a service worker does not have one — but the
-   * exchange itself happens in the worker, which owns the relay client and the
-   * settings write. Presentation never fetches.
+   * The popup collects the token and requests the host permission — that call
+   * needs a user gesture and a service worker does not have one — but the two
+   * Telegram calls and the settings write happen in the worker. Presentation
+   * never fetches, and the token makes one trip across this boundary and is
+   * never sent back.
    */
-  | { type: 'wick:relay-connect'; code: string }
-  /** Revoke this installation's relay token and forget it locally. */
-  | { type: 'wick:relay-disconnect' };
+  | { type: 'wick:telegram-connect'; botToken: string }
+  /** Forget the token and the chat. Nothing is revoked — see ADR 0009. */
+  | { type: 'wick:telegram-disconnect' };
 
 /**
  * How a connect attempt ended.
  *
  * A boundary type rather than a view type: the worker decides it, the settings
  * screen renders it, and neither gets to invent a value the other has not
- * heard of. Deliberately coarser than `RelayFailure` — the user can act on
- * "the code was stale" and on "grant the permission", and every remaining
+ * heard of. Deliberately coarser than `TelegramFailure` — the user can act on
+ * "message your bot first" and on "grant the permission", and every remaining
  * failure is the same sentence to them.
  */
-export type RelayConnectOutcome =
+export type ConnectOutcome =
   | 'ok'
-  /** Unknown, expired, or already spent. Far more often stale than mistyped. */
-  | 'invalid-code'
-  /** The relay could not be reached. */
+  /** Telegram rejected the token: mistyped, or revoked in @BotFather. */
+  | 'bad-token'
+  /**
+   * The token works, but the user has not messaged their bot — so there is no
+   * chat to send to. The commonest outcome on a first attempt, and the one the
+   * settings screen must explain rather than report.
+   */
+  | 'no-chat'
+  /** Telegram could not be reached. */
   | 'unavailable'
-  /** The user declined the host permission the relay call needs. */
+  /** The user declined the host permission the call needs. */
   | 'not-permitted';
 
 export type RuntimeResponse =
   | { ok: true; state: WickState }
-  | { ok: true; outcome: RelayConnectOutcome }
+  | { ok: true; outcome: ConnectOutcome }
   | { ok: true }
   | { ok: false; error: string };
 
@@ -132,7 +139,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:refresh' ||
     type === 'wick:tab-open' ||
     type === 'wick:get-state' ||
-    type === 'wick:relay-connect' ||
-    type === 'wick:relay-disconnect'
+    type === 'wick:telegram-connect' ||
+    type === 'wick:telegram-disconnect'
   );
 }
