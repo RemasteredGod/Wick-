@@ -170,8 +170,11 @@ function standing(name: string, ranked: number): Standing {
 }
 
 describe('ranking', () => {
-  it('counts cache creation and excludes cache reads', () => {
-    expect(rankedTotal({ input: 10, output: 20, cacheCreation: 5, cacheRead: 1_000_000 })).toBe(35);
+  it('excludes both cache figures from the score', () => {
+    // ADR 0006: the score is input + output. plan.md §4 recommends folding
+    // cache creation in; the ADR is the accepted decision and does not.
+    expect(rankedTotal({ input: 10, output: 20, cacheCreation: 5, cacheRead: 1_000_000 })).toBe(30);
+    expect(rankedTotal({ input: 10, output: 20, cacheCreation: 9_999, cacheRead: 0 })).toBe(30);
   });
 
   it('does not let a cache-heavy workflow outrank real work', () => {

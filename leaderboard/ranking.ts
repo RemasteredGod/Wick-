@@ -1,17 +1,19 @@
 /**
  * The metric, and the order.
  *
- * "Total tokens" is the obvious ranking and the wrong one. Cache reads are an
- * order of magnitude cheaper than input tokens, so a raw sum ranks whoever has
- * the most cache-heavy workflow above whoever did the most work. ADR 0006
- * settles it:
+ * "Total tokens" is the obvious ranking and the wrong one. Cache tokens are far
+ * cheaper than input tokens, so a raw sum ranks whoever has the most
+ * cache-heavy workflow above whoever did the most work. ADR 0006 settles it:
  *
- *     ranked = input + output + cacheCreation
+ *     ranked = input + output
  *
- * with `cacheRead` **carried through every calculation and added to none of
- * them**. It is displayed beside the figure so the ranking is legible rather
- * than a mystery number, and that is the only thing it is for. There is
- * deliberately no option, flag or parameter in this file that folds it in.
+ * with **both** cache figures carried through every calculation and added to
+ * none of them. They are displayed beside the figure so the ranking is legible
+ * rather than a mystery number, and that is the only thing they are for. There
+ * is deliberately no option, flag or parameter in this file that folds them in.
+ *
+ * `plan.md` §4 recommends counting `cache_creation` into the score. ADR 0006 is
+ * the accepted decision and excludes it. Where the two disagree, the ADR wins.
  *
  * Pure. `today` is passed in; nothing here reads a clock.
  */
@@ -30,7 +32,7 @@ export interface Participant {
 export interface Standing {
   rank: number;
   name: string;
-  /** `input + output + cacheCreation`. What the row is ordered by. */
+  /** `input + output`. What the row is ordered by; no cache figure is in it. */
   ranked: number;
   counters: Counters;
   sessions: number;
@@ -49,7 +51,7 @@ export const BOARD_SIZE = 100;
  * and every board, profile and share image moves with it.
  */
 export function rankedTotal(counters: Counters): number {
-  return counters.input + counters.output + counters.cacheCreation;
+  return counters.input + counters.output;
 }
 
 /**

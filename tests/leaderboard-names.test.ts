@@ -210,7 +210,7 @@ describe('profile card', () => {
   }
 
   it('always carries the self-reported label', () => {
-    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(3, 35)]]), 4);
+    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(3, 30)]]), 4);
     expect(card.label).toBe(SELF_REPORTED_LABEL);
   });
 
@@ -219,8 +219,8 @@ describe('profile card', () => {
       'ash',
       new Map<Period, Standing | null>([
         ['week', null],
-        ['month', standing(9, 35)],
-        ['all', standing(3, 35)],
+        ['month', standing(9, 30)],
+        ['all', standing(3, 30)],
       ]),
       4,
     );
@@ -229,13 +229,13 @@ describe('profile card', () => {
   });
 
   it('carries cache reads without folding them into the ranked figure', () => {
-    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(3, 35)]]), 4);
+    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(3, 30)]]), 4);
     expect(card.counters.cacheRead).toBe(9_000);
-    expect(card.standings[0]?.ranked).toBe(35);
+    expect(card.standings[0]?.ranked).toBe(30);
   });
 
   it('shows no plan tier, message count, or social graph', () => {
-    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(1, 35)]]), 4);
+    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(1, 30)]]), 4);
     const keys = Object.keys(card);
     for (const forbidden of ['plan', 'tier', 'messages', 'friends', 'followers']) {
       expect(keys, forbidden).not.toContain(forbidden);
