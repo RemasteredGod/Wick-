@@ -6,10 +6,10 @@
  *
  * 1. Mount the card into claude.ai's sidebar, inside a shadow root so that
  *    nothing leaks in either direction.
- * 2. Inject the MAIN-world fetch wrapper and relay what it observes to the
- *    service worker. An isolated-world script cannot see the page's `fetch`,
- *    and MV3's webRequest cannot read response bodies, so the wrapper has to
- *    run in the page and talk back through `postMessage`.
+ * 2. Bridge messages from the separately registered MAIN-world fetch wrapper
+ *    to the service worker. An isolated-world script cannot see the page's
+ *    `fetch`, and MV3's webRequest cannot read response bodies, so the wrapper
+ *    runs in the page world and talks back through `postMessage`.
  *
  * The governing rule, from the design archive's own principles: **fail quiet.**
  * If the anchor is missing, if the markup has moved, if anything throws — Wick
@@ -20,10 +20,20 @@
 import { h, render } from 'preact';
 import { useState } from 'preact/hooks';
 import { project } from '~/core/projection';
-import { disconnectRelay, useWickState } from '~/popup/useWickState';
+import { allowanceWindow } from '~/core/windows';
+import { disconnectTelegram, useWickState } from '~/popup/useWickState';
 import { SidebarCard } from './SidebarCard';
+import { UsagePanel } from './UsagePanel';
 import { initBridge } from './bridge';
-import { ANCHOR_TIMEOUT_MS, HOST_ID, findAnchor, findProjectsHeading } from './selectors';
+import { setPanelAnchor } from './panel';
+import {
+  ANCHOR_TIMEOUT_MS,
+  HOST_ID,
+  PANEL_HOST_ID,
+  findAnchor,
+  findDockTarget,
+  findPanelParent,
+} from './selectors';
 import tokens from '~/styles/tokens.css?inline';
 import components from '~/styles/components.css?inline';
 import sidebar from './sidebar.css?inline';
@@ -36,36 +46,50 @@ import sidebar from './sidebar.css?inline';
 const SHADOW_STYLES = [tokens.replaceAll(':root', ':host'), components, sidebar].join('\n');
 
 /**
- * The card, wired to the store.
+ * The two surfaces, wired to the store.
  *
  * Presentation reads from storage and never fetches — the same hook the popup
- * uses, because the two surfaces show the same numbers and there is no second
+ * uses, because every surface shows the same numbers and there is no second
  * source for them to disagree from.
  *
- * Until the first read lands this renders nothing rather than a row of zeros.
- * An empty sidebar for a few milliseconds is invisible; a card that says 0% and
+ * Until the first read lands they render nothing rather than a row of zeros. An
+ * empty sidebar for a few milliseconds is invisible; a card that says 0% and
  * then jumps is not.
+ *
+ * They are two roots in two places on the page, not one tree: the card belongs
+ * in the sidebar and the panel cannot be, because the sidebar clips it. What
+ * they share is one boolean, in `./panel`.
  */
-function Card() {
+function useSurfaceState() {
   const { state, ready, update } = useWickState();
   const [now] = useState(() => Date.now());
 
-  if (!ready) return null;
-
-  const windows = state.snapshot?.windows ?? [];
-  if (windows.length === 0) return null;
-
-  const weekly = windows[1] ?? windows[0];
+  const windows = ready ? (state.snapshot?.windows ?? []) : [];
+  const weekly = allowanceWindow(windows) ?? undefined;
   const projection =
     weekly === undefined ? null : project({ window: weekly, history: state.history, now });
 
-  return h(SidebarCard, {
+  return { state, windows, projection, update, now };
+}
+
+function Card() {
+  const { state, windows, now } = useSurfaceState();
+
+  if (windows.length === 0) return null;
+
+  return h(SidebarCard, { windows, settings: state.settings, now });
+}
+
+function Panel() {
+  const { state, windows, projection, update, now } = useSurfaceState();
+
+  return h(UsagePanel, {
     windows,
     history: state.history,
     projection,
     settings: state.settings,
     onChange: update,
-    onDisconnect: disconnectRelay,
+    onDisconnect: disconnectTelegram,
     now,
   });
 }
@@ -86,14 +110,56 @@ function mount(anchor: Element): void {
   const root = document.createElement('div');
   shadow.append(root);
 
-  const projects = findProjectsHeading(anchor);
-  if (projects?.parentElement) {
-    projects.parentElement.insertBefore(host, projects);
+  // Above the project list when it can be found, at the end of the sidebar when
+  // it cannot. Both are inside the sidebar; neither can land on the page proper.
+  const dock = findDockTarget(anchor);
+  if (dock?.parentElement) {
+    dock.parentElement.insertBefore(host, dock);
   } else {
     anchor.append(host);
   }
 
+  // The panel measures its position against this element, from the other root.
+  setPanelAnchor(host);
+
   render(h(Card, {}), root);
+  mountPanel();
+}
+
+/**
+ * Mount the panel's own root, in the main content frame.
+ *
+ * A second host rather than a second element in the sidebar's tree: the
+ * sidebar scrolls, and anything positioned out of a scroll container is clipped
+ * by it — which is what made the panel appear to open inside the navigation.
+ *
+ * The host itself is a zero-sized fixed box. It contributes no layout to
+ * claude.ai's own flexbox, and the panel inside it positions against the
+ * viewport. Guest rules: mounting a surface into someone's application must not
+ * move their application.
+ */
+function mountPanel(): void {
+  if (document.getElementById(PANEL_HOST_ID)) return;
+
+  const host = document.createElement('div');
+  host.id = PANEL_HOST_ID;
+  host.style.position = 'fixed';
+  host.style.top = '0';
+  host.style.left = '0';
+  host.style.width = '0';
+  host.style.height = '0';
+  host.style.zIndex = '2147483000';
+
+  const shadow = host.attachShadow({ mode: 'open' });
+  const style = document.createElement('style');
+  style.textContent = SHADOW_STYLES;
+  shadow.append(style);
+
+  const root = document.createElement('div');
+  shadow.append(root);
+
+  findPanelParent().append(host);
+  render(h(Panel, {}), root);
 }
 
 /**

@@ -1,11 +1,12 @@
 /**
  * MAIN-world fetch wrapper.
  *
- * Loaded into the page's own world, not the isolated content-script world,
- * because it has to see the `window.fetch` that claude.ai actually calls.
- * MV3's `webRequest` cannot read response bodies at all, so the only way to
- * observe the `message_limit` event at the tail of a completion stream is from
- * inside the page.
+ * Registered as a static MV3 content script with `world: 'MAIN'`, because it
+ * has to see the `window.fetch` that claude.ai actually calls. Registering it
+ * through the manifest also makes CRXJS emit executable JavaScript instead of
+ * asking the page to load a `.ts` extension URL with an octet-stream MIME type.
+ * MV3's `webRequest` cannot read response bodies at all, so observing the
+ * `message_limit` event at the tail of a completion stream must happen here.
  *
  * Two rules govern everything this file does, and both are easy to get wrong:
  *
@@ -20,17 +21,17 @@
  * reason a message fails to render. Nothing in the tee is ever awaited on the
  * path the page is waiting on.
  *
- * Two further hazards, recorded in docs/protocol.md and easy to be caught by:
+ * Two further hazards, recorded in the protocol notes and easy to be caught by:
  * records are right-padded with a variable run of spaces, so byte lengths are
  * not stable and nothing may key off them; and delivery is bursty, so an entire
  * short reply can arrive as a single delta. Hence a cap on the accumulated
  * buffer, and abandonment rather than silent truncation when it is hit.
  *
- * **What this file may import.** It is built as a web-accessible resource and
- * loaded into a page Wick does not own, so it may only import modules that are
- * pure at module scope: `~/core/messages` for the tag, and the provider's
- * parsers. Neither touches `chrome.*` or the store on import, and the provider
- * object itself is unreferenced here so it does not survive bundling.
+ * **What this file may import.** It executes in a page Wick does not own, so it
+ * may only import modules that are pure at module scope: `~/core/messages` for
+ * the tag, and the provider's parsers. Neither touches `chrome.*` or the store
+ * on import, and the provider object itself is unreferenced here so it does not
+ * survive bundling.
  */
 
 import { INJECT_SOURCE, type InjectMessage } from '~/core/messages';
@@ -42,7 +43,7 @@ import { isCompletionUrl, limitWindowsFromEvent, parseSseChunk } from '~/provide
  * This is not a cap on the reply — complete records are parsed and dropped as
  * they arrive, so a long conversation never accumulates. It bounds only the
  * fragment Wick is still waiting for a blank line to finish. Two megabytes of
- * one unterminated record means the framing assumption in docs/protocol.md is
+ * one unterminated record means the framing assumption in the protocol notes are
  * wrong, and a number read out of a stream that cannot be framed is worse than
  * no number: the authoritative poll is a minute away at most. So the stream is
  * abandoned, not truncated.
@@ -70,8 +71,13 @@ function install(): void {
       try {
         const url = requestUrl(args[0]);
         if (url !== '' && isCompletionUrl(url)) {
-          post({ source: INJECT_SOURCE, kind: 'message-sent', at: Date.now() });
           // Detached: a separate promise chain the page never sees or waits on.
+          // Note what is *not* here: the message count. A request starting is
+          // not a message — it may be refused for hitting the very limit Wick
+          // is reporting on, or fail on the network — and counting one here
+          // inflates the only figure on the panel that claims to count what the
+          // user actually did. The count happens in `observe`, once the server
+          // has answered with a stream.
           pending.then(observe, ignore).catch(ignore);
         }
       } catch {
@@ -98,7 +104,7 @@ async function observe(response: Response): Promise<void> {
 
   const contentType = copy.headers.get('content-type') ?? '';
 
-  // A refused send answers with JSON instead of a stream — docs/protocol.md
+  // A refused send answers with JSON instead of a stream — the protocol notes
   // §"Rejection responses". Anything that is not a stream is treated as one of
   // those and handed over whole; deciding what it means is the bridge's job.
   if (!contentType.includes('text/event-stream')) {
@@ -106,7 +112,32 @@ async function observe(response: Response): Promise<void> {
     return;
   }
 
+  // The server accepted the send and is answering with a stream. *That* is a
+  // message. The id is per response, so the same one observed twice — a second
+  // wrapper, a re-entered handler — is still one message.
+  post({ source: INJECT_SOURCE, kind: 'message-sent', at: Date.now(), id: requestId() });
+
   await readStream(copy);
+}
+
+/**
+ * An identifier for one accepted completion.
+ *
+ * `crypto.randomUUID` is not available on every page context Wick runs in —
+ * it needs a secure context, and an extension cannot assume one — so the
+ * fallback is not decoration. Collisions only matter within one worker's
+ * memory of the last few sends, which makes this far more entropy than the job
+ * needs.
+ */
+function requestId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // Fall through to the arithmetic one.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function readRefusal(response: Response): Promise<void> {

@@ -85,23 +85,29 @@
   gap: var(--wick-space-6);
 }
 
-/* ---- Floating panel ------------------------------------------------------ *
+/* ---- The anchored panel -------------------------------------------------- *
  * The archive positions this at a fixed offset measured against the canvas —
- * left:302px, just clear of a 290px sidebar. Here it anchors to the card
- * instead, which is the same intent expressed against a real page whose
- * sidebar can be any width. It opens beside the navigation rather than over
- * it, so the chat list stays readable behind it.                              */
+ * left:302px, just clear of a 290px sidebar. Here it is measured against the
+ * card at runtime, because a real sidebar can be any width and the user can
+ * drag it.
+ *
+ * `fixed`, not `absolute`, and mounted in the main content frame rather than in
+ * the sidebar. A sidebar is a scroll container: a panel positioned out of one is
+ * clipped by it, which is what made this open *inside* the navigation instead of
+ * beside it. Top, left and both maxima are set inline by `UsagePanel`, which is
+ * the only thing that can know them.                                           */
 
-.wick-panel--floating {
-  position: absolute;
-  top: 0;
-  left: calc(100% + var(--wick-space-12));
+.wick-panel--anchored {
+  position: fixed;
+  /* Until the first measurement lands, off the top-left of the sidebar rather
+     than over the composer. One frame, and only on first open. */
+  top: 12px;
+  left: 12px;
   z-index: 2147483000;
   width: var(--wick-panel-width);
-  max-height: 70vh;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   background: var(--wick-surface);
   border: 1px solid var(--wick-border-strong);
   border-radius: var(--wick-radius-panel);

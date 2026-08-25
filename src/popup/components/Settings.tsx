@@ -1,17 +1,18 @@
 import { useState } from 'preact/hooks';
-import type { RelayConnectOutcome } from '~/core/messages';
+import type { ConnectOutcome as BoundaryOutcome } from '~/core/messages';
 import { ALERT_THRESHOLD_CHOICES, type DisplayOptions, type Settings } from '~/core/types';
 
 /**
  * Where the Project links point.
  *
- * The repository URL is the project's own remote. The Ko-fi handle is still the
- * archive's (ext:222) and is a guess — fix it before release; nothing else here
- * depends on it.
+ * Both the repository URL and the Ko-fi handle are the project's own. The
+ * handle is displayed as well as linked (the archive's row shows it under the
+ * label, ext:222), so it is written once here rather than twice in the markup.
  */
 const REPO_URL = 'https://github.com/RemasteredGod/Wick-';
 const ISSUES_URL = `${REPO_URL}/issues`;
-const KOFI_HANDLE = 'ko-fi.com/jayant';
+const LEADERBOARD_URL = 'https://usewick.lol';
+const KOFI_HANDLE = 'ko-fi.com/remasteredgod';
 const KOFI_URL = `https://${KOFI_HANDLE}`;
 
 /**
@@ -20,7 +21,7 @@ const KOFI_URL = `https://${KOFI_HANDLE}`;
  * Defined at the boundary rather than here, so the two ends cannot disagree
  * about what the possible answers are.
  */
-export type ConnectOutcome = RelayConnectOutcome;
+export type ConnectOutcome = BoundaryOutcome;
 
 /** Labels for the display toggles, in the archive's order (ext:339). */
 const DISPLAY_OPTIONS: ReadonlyArray<{ key: keyof DisplayOptions; label: string }> = [
@@ -35,13 +36,20 @@ interface SettingsProps {
   /** Applied immediately. There is no Save button; see the note below. */
   onChange(patch: Partial<Settings>): void;
   /**
-   * Redeem a connect code. Presentation never fetches — the view collects the
-   * code and hands it to the worker, which owns the relay client and the
-   * storage write. Absent means the connect flow is not wired up yet, and the
-   * field is disabled rather than pretending to work.
+   * Hand a pasted bot token to the worker. Presentation never fetches — the
+   * view collects the token and the worker verifies it, finds the chat and
+   * writes settings. Absent means the flow is not wired up here, and the field
+   * is disabled rather than pretending to work.
    */
-  onConnect?: (code: string) => Promise<ConnectOutcome>;
-  /** Revoke the relay token and clear it locally. */
+  onConnect?: (botToken: string) => Promise<ConnectOutcome>;
+  /**
+   * Retry chat discovery for a token already stored. The second half of the
+   * flow, after the user has messaged their bot.
+   */
+  onFinish?: () => Promise<ConnectOutcome>;
+  /** Send a test message, so the user sees something arrive. */
+  onTest?: () => Promise<ConnectOutcome>;
+  /** Forget the token and chat locally. Nothing is revoked — see ADR 0009. */
   onDisconnect?: () => void;
   /** Leave the settings view. */
   onClose?: () => void;
@@ -57,12 +65,12 @@ interface SettingsProps {
  * already recorded:
  *
  * 1. **A view, not a modal.** A 400px card does not fit a 380px popup.
- *    docs/design.md deviation 3.
+ *    the design notes deviation 3.
  * 2. **No bot-token field and no chat-ID field.** The archive takes both and
  *    keeps them in `chrome.storage.local`, which is plain JSON on disk holding
  *    an unscoped bearer credential. What this screen takes instead is a
  *    short-lived connect code, exchanged for a revocable per-user token. See
- *    docs/decisions/0002-telegram-relay-not-bot-token.md.
+ *    ADR 0002 (relay, not a stored bot token).
  *
  * The archive's Save button also goes. Every control here writes through
  * `onChange` as it is touched, so a Save button would only offer the chance to
@@ -76,32 +84,51 @@ export function Settings({
   settings,
   onChange,
   onConnect,
+  onFinish,
+  onTest,
   onDisconnect,
   onClose,
   version,
 }: SettingsProps) {
-  const [code, setCode] = useState('');
+  const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
-  const connected = settings.relayToken !== null;
+  /**
+   * Three states, not two.
+   *
+   * `awaiting` is the one the old two-state version could not express: Telegram
+   * has vouched for the token, but the user has not messaged their bot yet so
+   * there is no chat to send to. That is the commonest point to be at during
+   * setup, and showing it as "not connected" made the token look rejected when
+   * nothing was wrong with it.
+   */
+  const stage: 'empty' | 'awaiting' | 'connected' =
+    settings.botToken === null ? 'empty' : settings.chatId === null ? 'awaiting' : 'connected';
 
-  async function submitCode(): Promise<void> {
-    if (onConnect === undefined || busy) return;
-
-    const trimmed = code.trim();
-    if (trimmed === '') return;
-
+  async function run(attempt: () => Promise<ConnectOutcome>): Promise<void> {
+    if (busy) return;
     setBusy(true);
     setProblem(null);
-    const outcome = await onConnect(trimmed);
+    const outcome = await attempt();
     setBusy(false);
 
     if (outcome === 'ok') {
-      setCode('');
+      setToken('');
       return;
     }
-    setProblem(PROBLEM_COPY[outcome]);
+    setSent(false);
+    // `no-chat` is not shown as a problem: it is the expected result of a first
+    // attempt, and the awaiting panel already says what to do about it.
+    setProblem(outcome === 'no-chat' ? null : PROBLEM_COPY[outcome]);
+  }
+
+  async function submitToken(): Promise<void> {
+    if (onConnect === undefined) return;
+    const trimmed = token.trim();
+    if (trimmed === '') return;
+    await run(() => onConnect(trimmed));
   }
 
   function toggleDisplay(key: keyof DisplayOptions): void {
@@ -133,69 +160,141 @@ export function Settings({
           <div class="wick-settings__field">
             <div class="wick-settings__status-row">
               <span
-                class={`wick-telegram__status${connected ? '' : ' wick-telegram__status--off'}`}
+                class={`wick-telegram__status${stage === 'connected' ? '' : ' wick-telegram__status--off'}`}
               >
                 <span class="wick-telegram__dot" />
-                {connected ? (settings.relayLabel ?? 'Connected') : 'Not connected'}
+                {stage === 'connected'
+                  ? (settings.chatLabel ?? 'Connected')
+                  : stage === 'awaiting'
+                    ? 'Waiting for your first message'
+                    : 'Not connected'}
               </span>
 
-              {connected && onDisconnect !== undefined && (
+              {stage !== 'empty' && onDisconnect !== undefined && (
                 <button
                   type="button"
                   class="wick-button wick-settings__inline-button"
                   onClick={onDisconnect}
                 >
-                  Disconnect
+                  {stage === 'connected' ? 'Disconnect' : 'Clear'}
                 </button>
               )}
             </div>
 
-            {connected ? (
-              <p class="wick-settings__note">
-                Alerts go through the relay, which holds no usage history. Disconnecting revokes
-                this installation&rsquo;s token.
-              </p>
-            ) : (
+            {stage === 'empty' ? (
               <form
                 class="wick-settings__field"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void submitCode();
+                  void submitToken();
                 }}
               >
                 <div class="wick-settings__row">
                   <input
                     type="text"
                     class="wick-settings__input"
-                    placeholder="Connect code"
-                    value={code}
+                    placeholder="Bot token from @BotFather"
+                    value={token}
                     disabled={onConnect === undefined || busy}
                     autocomplete="off"
                     spellcheck={false}
-                    aria-label="Connect code"
-                    onInput={(event) => setCode(event.currentTarget.value)}
+                    aria-label="Telegram bot token"
+                    onInput={(event) => setToken(event.currentTarget.value)}
                   />
                   <button
                     type="submit"
                     class="wick-button wick-settings__inline-button wick-settings__primary"
-                    disabled={onConnect === undefined || busy || code.trim() === ''}
+                    disabled={onConnect === undefined || busy || token.trim() === ''}
                   >
-                    {busy ? 'Connecting' : 'Connect'}
+                    {busy ? 'Checking' : 'Connect'}
                   </button>
                 </div>
 
                 <p class="wick-settings__note">
                   {onConnect === undefined ? (
-                    'Connect from the Wick popup in your toolbar. Granting access to the relay needs a permission prompt, and only the popup can raise one.'
+                    'Connect from the Wick popup in your toolbar. Granting access to Telegram needs a permission prompt, and only the popup can raise one.'
                   ) : (
                     <>
-                      Message the Wick bot on Telegram, send <code>/start</code>, and paste the code
-                      it replies with. Wick never holds a bot token &mdash; the code becomes a
-                      per-user token you can revoke.
+                      Message <strong>@BotFather</strong>, send <code>/newbot</code>, and paste the
+                      token it gives you.
                     </>
                   )}
                 </p>
               </form>
+            ) : (
+              <>
+                {/* The token stays on screen once accepted, greyed and masked.
+                    It is the only evidence the field was filled in, and the
+                    secret half is never rendered. */}
+                <div class="wick-settings__row">
+                  <input
+                    type="text"
+                    class="wick-settings__input"
+                    value={maskToken(settings.botToken)}
+                    disabled
+                    readonly
+                    aria-label="Telegram bot token, saved"
+                  />
+                  {stage === 'awaiting' && onFinish !== undefined && (
+                    <button
+                      type="button"
+                      class="wick-button wick-settings__inline-button wick-settings__primary"
+                      disabled={busy}
+                      onClick={() => void run(onFinish)}
+                    >
+                      {busy ? 'Checking' : 'Finish'}
+                    </button>
+                  )}
+                </div>
+
+                {stage === 'awaiting' ? (
+                  <p class="wick-settings__note">
+                    Token accepted{settings.chatLabel === null ? '' : ` for ${settings.chatLabel}`}.
+                    Now open Telegram, send your bot <code>/start</code>, and press Finish &mdash;
+                    Telegram will not let a bot message you until you have written to it first.
+                  </p>
+                ) : (
+                  <>
+                    <div class="wick-settings__row">
+                      {onTest !== undefined && (
+                        <button
+                          type="button"
+                          class="wick-button wick-settings__inline-button"
+                          disabled={busy}
+                          onClick={() => {
+                            void (async () => {
+                              setBusy(true);
+                              setProblem(null);
+                              const outcome = await onTest();
+                              setBusy(false);
+                              setSent(outcome === 'ok');
+                              if (outcome !== 'ok') setProblem(PROBLEM_COPY[outcome]);
+                            })();
+                          }}
+                        >
+                          {busy ? 'Sending' : sent ? 'Sent' : 'Send test message'}
+                        </button>
+                      )}
+                    </div>
+
+                    <p class="wick-settings__note">
+                      Connected. Wick sent your current usage when you finished setup &mdash; if it
+                      arrived, alerts will too. Nothing passes through a server.
+                    </p>
+
+                    <p class="wick-settings__note">
+                      In Telegram, send your bot <code>/weekly</code> or <code>/daily</code> to ask
+                      for usage. Replies come from this extension rather than a server, so Chrome
+                      has to be open and an answer can take a few minutes.
+                    </p>
+
+                    <p class="wick-settings__note">
+                      Disconnecting forgets the token here; to kill the bot itself, revoke it in
+                      @BotFather.
+                    </p>
+                  </>
+                )}
+              </>
             )}
 
             {problem !== null && <p class="wick-settings__note wick-settings__note--problem">{problem}</p>}
@@ -279,6 +378,14 @@ export function Settings({
             <a class="wick-settings__link" href={ISSUES_URL} target="_blank" rel="noreferrer">
               Report an issue
             </a>
+            <a
+              class="wick-settings__link"
+              href={LEADERBOARD_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View leaderboard
+            </a>
           </div>
 
           {/* An ask, not an ad: it sits under Project, at the bottom, once. */}
@@ -311,16 +418,31 @@ export function Settings({
  * A rejected code is much more often expired than mistyped, so the copy leads
  * with that rather than implying the user cannot type.
  */
+/**
+ * Show enough of a token to recognise it, and none of the secret.
+ *
+ * A Telegram token is `<bot id>:<secret>`. The id half identifies which bot
+ * without being the credential, so it is the half worth showing.
+ */
+function maskToken(botToken: string | null): string {
+  if (botToken === null) return '';
+  const [id] = botToken.split(':');
+  return id === undefined || id === botToken ? '••••••••' : `${id}:${'•'.repeat(12)}`;
+}
+
 const PROBLEM_COPY: Record<Exclude<ConnectOutcome, 'ok'>, string> = {
-  'invalid-code': 'That code did not work. Codes expire after a few minutes — ask the bot for a new one.',
-  unavailable: 'Could not reach the relay. Nothing was changed.',
-  'not-permitted': 'Wick needs permission to reach the relay before it can connect.',
+  'bad-token': 'Telegram did not accept that token. Copy it again from @BotFather.',
+  // The commonest first attempt, and the only one where nothing is wrong —
+  // the user simply has a step left to do. Worded as an instruction, not an error.
+  'no-chat': 'Send your bot a message on Telegram, then press Connect again.',
+  unavailable: 'Could not reach Telegram. Nothing was changed.',
+  'not-permitted': 'Wick needs permission to reach Telegram before it can connect.',
 };
 
 /**
  * Drawn rather than typed, for the same reason as the gear: the archive uses a
  * character (×) and Windows may route it through a font Wick does not control.
- * See docs/design.md deviation 6.
+ * See the design notes deviation 6.
  */
 function CloseIcon() {
   return (

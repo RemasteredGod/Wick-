@@ -16,14 +16,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cycleKeyFor,
   evaluateSnapshotChange,
-  handleRelayMessage,
+  handleTelegramMessage,
   initAlerts,
   resetMessage,
   thresholdMessage,
   weeklySummaryMessage,
   weeklyWindow,
 } from '~/background/alerts';
-import { RELAY_ORIGIN } from '~/background/relay';
+import { TELEGRAM_ORIGIN } from '~/background/telegram';
 import { KEYS } from '~/background/store';
 import { DEFAULT_SETTINGS, type DailyRollup, type LimitWindow, type Settings } from '~/core/types';
 import { installChromeMock, uninstallChromeMock, type FakeChrome } from './helpers/chrome-mock';
@@ -53,15 +53,30 @@ function limitWindow(patch: Partial<LimitWindow> & { key: string }): LimitWindow
     status: 'ok',
     resetsAt: null,
     active: true,
+    role: 'other',
     ...patch,
   };
 }
 
 const session = (utilization: number, resetsAt: number) =>
-  limitWindow({ key: '5h', label: 'Session · 5 hr', shortLabel: 'Session', utilization, resetsAt });
+  limitWindow({
+    key: '5h',
+    label: 'Session · 5 hr',
+    shortLabel: 'Session',
+    role: 'session',
+    utilization,
+    resetsAt,
+  });
 
 const weekly = (utilization: number, resetsAt: number) =>
-  limitWindow({ key: '7d', label: 'Weekly', shortLabel: 'Weekly', utilization, resetsAt });
+  limitWindow({
+    key: '7d',
+    label: 'Weekly',
+    shortLabel: 'Weekly',
+    role: 'weekly',
+    utilization,
+    resetsAt,
+  });
 
 function snapshot(windows: LimitWindow[]): unknown {
   return { providerId: 'claude', windows, fetchedAt: NOW, source: 'usage' };
@@ -224,13 +239,15 @@ describe('rollover alerts', () => {
   });
 });
 
-/* ---- The relay ----------------------------------------------------------- */
+/* ---- Telegram ------------------------------------------------------------ */
 
-describe('relay dispatch', () => {
-  it('does not call the relay when no token is stored', async () => {
+const OK = () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+
+describe('telegram dispatch', () => {
+  it('does not call Telegram when no token is stored', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    settings({ relayToken: null });
+    settings({ botToken: null, chatId: null });
 
     await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
 
@@ -238,30 +255,58 @@ describe('relay dispatch', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sends to the relay when a token is stored', async () => {
-    const fetchMock = vi.fn(async () => new Response('{}', { status: 202 }));
+  it('does not call Telegram when a token has no chat', async () => {
+    // Half-connected is the state a failed chat lookup would leave behind.
+    // Sending would throw away the alert against a chat_id of null.
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    settings({ relayToken: 'per-user-token', relayLabel: '@someone' });
+    settings({ botToken: 'bot-token', chatId: null });
+
+    await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
+
+    expect(fake.notifications).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('posts straight to the bot when a token and chat are stored', async () => {
+    const fetchMock = vi.fn(OK);
+    vi.stubGlobal('fetch', fetchMock);
+    settings({ botToken: '123:ABC', chatId: 4242, chatLabel: '@someone' });
 
     await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`${RELAY_ORIGIN}/v1/send`);
-    // The bearer is the revocable per-user token and nothing else. There is no
-    // bot token in this codebase to leak here.
-    expect((init.headers as Record<string, string>)['Authorization']).toBe(
-      'Bearer per-user-token',
-    );
-    expect(String(init.body)).toContain('Weekly usage 82%');
+    expect(url).toBe(`${TELEGRAM_ORIGIN}/bot123:ABC/sendMessage`);
+
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body['chat_id']).toBe(4242);
+    expect(String(body['text'])).toContain('Weekly usage 82%');
+    // A stray underscore in an alert must never come back as a 400. The
+    // extension composes the text and nothing here interprets it.
+    expect(body).not.toHaveProperty('parse_mode');
   });
 
-  it('still notifies locally when the relay rejects', async () => {
+  it('sends no Authorization header — the token is in the path', async () => {
+    const fetchMock = vi.fn(OK);
+    vi.stubGlobal('fetch', fetchMock);
+    settings({ botToken: '123:ABC', chatId: 4242 });
+
+    await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
+    // And never on a cookie: Telegram must not act on a request the browser
+    // made on its own.
+    expect(init.credentials).toBe('omit');
+  });
+
+  it('still notifies locally when Telegram is unreachable', async () => {
     const fetchMock = vi.fn(async () => {
-      throw new Error('relay unreachable');
+      throw new Error('offline');
     });
     vi.stubGlobal('fetch', fetchMock);
-    settings({ relayToken: 'per-user-token' });
+    settings({ botToken: '123:ABC', chatId: 4242 });
 
     await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
 
@@ -272,12 +317,12 @@ describe('relay dispatch', () => {
   it('does not retry a rate-limited send', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 429 }));
     vi.stubGlobal('fetch', fetchMock);
-    settings({ relayToken: 'per-user-token' });
+    settings({ botToken: '123:ABC', chatId: 4242 });
 
     await evaluateSnapshotChange(undefined, snapshot([weekly(82, NOW + 4 * DAY)]), NOW);
 
     // One attempt, then silence. A late warning is worse than a missing one and
-    // a retry storm is how the relay gets itself blocked.
+    // a retry storm is how a bot gets itself rate limited.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -350,7 +395,7 @@ describe('the connect flow', () => {
   /** Drive the listener the way Chrome does, and resolve with what it replies. */
   function ask(message: unknown): Promise<unknown> {
     return new Promise((resolve) => {
-      const claimed = handleRelayMessage(
+      const claimed = handleTelegramMessage(
         message,
         {} as chrome.runtime.MessageSender,
         resolve as (response: unknown) => void,
@@ -363,78 +408,185 @@ describe('the connect flow', () => {
     return (await chrome.storage.local.get(KEYS.settings))[KEYS.settings] as Settings;
   }
 
-  it('stores the token and the label a code is exchanged for', async () => {
-    const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ token: 'per-user', label: '@someone' })),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    settings({ relayToken: null, relayLabel: null });
+  /** getMe then getUpdates, in that order. */
+  function telegram(getMe: unknown, getUpdates: unknown) {
+    return vi.fn(async (url: string) => {
+      const body = url.includes('getMe') ? getMe : getUpdates;
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+  }
 
-    expect(await ask({ type: 'wick:relay-connect', code: 'K7QM2XPD' })).toEqual({
+  const ME = { ok: true, result: { username: 'my_wick_bot' } };
+  const CHAT = {
+    ok: true,
+    result: [{ update_id: 7, message: { chat: { id: 4242, username: 'someone' } } }],
+  };
+
+  it('verifies the token, discovers the chat, and stores both', async () => {
+    const fetchMock = telegram(ME, CHAT);
+    vi.stubGlobal('fetch', fetchMock);
+    settings({ botToken: null, chatId: null, chatLabel: null });
+
+    expect(await ask({ type: 'wick:telegram-connect', botToken: '123:ABC' })).toEqual({
       ok: true,
       outcome: 'ok',
     });
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`${RELAY_ORIGIN}/v1/connect`);
-    expect(String(init.body)).toContain('K7QM2XPD');
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls[0]).toBe(`${TELEGRAM_ORIGIN}/bot123:ABC/getMe`);
+    expect(urls[1]).toBe(`${TELEGRAM_ORIGIN}/bot123:ABC/getUpdates`);
 
     const saved = await storedSettings();
-    expect(saved.relayToken).toBe('per-user');
-    expect(saved.relayLabel).toBe('@someone');
+    expect(saved.botToken).toBe('123:ABC');
+    // Discovered, never typed. Asking a user for a numeric chat id is the worst
+    // part of every bot integration.
+    expect(saved.chatId).toBe(4242);
+    expect(saved.chatLabel).toBe('@someone');
   });
 
-  it('reports a refused code as one the user can replace', async () => {
-    vi.stubGlobal('fetch', async () => new Response('{}', { status: 400 }));
-    settings({ relayToken: null });
+  it('takes the most recent message when several are waiting', async () => {
+    // A user retrying after a failed attempt has a backlog; the newest is the
+    // one they just sent.
+    vi.stubGlobal(
+      'fetch',
+      telegram(ME, {
+        ok: true,
+        result: [
+          { update_id: 3, message: { chat: { id: 111, username: 'stale' } } },
+          { update_id: 9, message: { chat: { id: 999, username: 'newest' } } },
+          { update_id: 5, message: { chat: { id: 555, username: 'middle' } } },
+        ],
+      }),
+    );
+    settings({ botToken: null, chatId: null });
 
-    expect(await ask({ type: 'wick:relay-connect', code: 'STALEONE' })).toEqual({
+    await ask({ type: 'wick:telegram-connect', botToken: '123:ABC' });
+
+    expect((await storedSettings()).chatId).toBe(999);
+  });
+
+  it('reports a token Telegram refuses, and writes nothing', async () => {
+    vi.stubGlobal('fetch', async () => new Response('{}', { status: 401 }));
+    settings({ botToken: null, chatId: null });
+
+    expect(await ask({ type: 'wick:telegram-connect', botToken: 'nope' })).toEqual({
       ok: true,
-      outcome: 'invalid-code',
+      outcome: 'bad-token',
     });
-    expect((await storedSettings()).relayToken).toBeNull();
+    expect((await storedSettings()).botToken).toBeNull();
   });
 
-  it('reports an unreachable relay as unavailable, and writes nothing', async () => {
-    vi.stubGlobal('fetch', async () => {
+  it('keeps a verified token when there is no chat yet, so nothing is re-typed', async () => {
+    // The commonest first attempt: the token is fine, but Telegram will not let
+    // a bot message someone who has not written to it. Discarding a 46-character
+    // token over a step the user has simply not done yet would be a bad trade.
+    vi.stubGlobal('fetch', telegram(ME, { ok: true, result: [] }));
+    settings({ botToken: null, chatId: null });
+
+    expect(await ask({ type: 'wick:telegram-connect', botToken: '123:ABC' })).toEqual({
+      ok: true,
+      outcome: 'no-chat',
+    });
+
+    const saved = await storedSettings();
+    expect(saved.botToken).toBe('123:ABC');
+    // But not connected: chatId is what everything else reads.
+    expect(saved.chatId).toBeNull();
+    expect(saved.chatLabel).toBe('@my_wick_bot');
+  });
+
+  it('finishes from the stored token once the user has messaged the bot', async () => {
+    const fetchMock = telegram(ME, CHAT);
+    vi.stubGlobal('fetch', fetchMock);
+    // Where the previous test left off.
+    settings({ botToken: '123:ABC', chatId: null, chatLabel: '@my_wick_bot' });
+
+    expect(await ask({ type: 'wick:telegram-finish' })).toEqual({ ok: true, outcome: 'ok' });
+
+    const saved = await storedSettings();
+    expect(saved.chatId).toBe(4242);
+    expect(saved.chatLabel).toBe('@someone');
+  });
+
+  it('sends a message on success, because storage is not proof', async () => {
+    // A settings screen saying "Connected" has only proved it can write to its
+    // own storage. A message landing in Telegram is the evidence the user wants.
+    const sent: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      if (String(url).includes('getUpdates')) {
+        return new Response(JSON.stringify(CHAT), { status: 200 });
+      }
+      if (String(url).includes('sendMessage')) {
+        sent.push(String((JSON.parse(String(init.body)) as { text: string }).text));
+      }
+      return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+    });
+    settings({ botToken: '123:ABC', chatId: null });
+
+    await ask({ type: 'wick:telegram-finish' });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('Wick is connected');
+  });
+
+  it('still connects when the confirmation message cannot be delivered', async () => {
+    // The connection is real even if one message did not land. Failing here
+    // would tell the user to redo something already done.
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).includes('sendMessage')) throw new Error('offline');
+      return new Response(JSON.stringify(CHAT), { status: 200 });
+    });
+    settings({ botToken: '123:ABC', chatId: null });
+
+    expect(await ask({ type: 'wick:telegram-finish' })).toEqual({ ok: true, outcome: 'ok' });
+    expect((await storedSettings()).chatId).toBe(4242);
+  });
+
+  it('never leaves a stored chat when the lookup fails', async () => {
+    // The token may be kept; a chat may not. Half-connected is allowed only in
+    // the direction that cannot silently swallow an alert.
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).includes('getMe')) return new Response(JSON.stringify(ME), { status: 200 });
       throw new Error('offline');
     });
-    settings({ relayToken: null });
+    settings({ botToken: null, chatId: null });
 
-    expect(await ask({ type: 'wick:relay-connect', code: 'K7QM2XPD' })).toEqual({
+    expect(await ask({ type: 'wick:telegram-connect', botToken: '123:ABC' })).toEqual({
       ok: true,
       outcome: 'unavailable',
     });
-    expect((await storedSettings()).relayToken).toBeNull();
+
+    expect((await storedSettings()).chatId).toBeNull();
   });
 
-  it('revokes before it forgets, so the relay hears about it', async () => {
-    const seen: Array<[string, string | undefined]> = [];
-    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
-      seen.push([url, (init.headers as Record<string, string>)['Authorization']]);
-      return new Response('{}', { status: 204 });
-    });
-    settings({ relayToken: 'per-user', relayLabel: '@someone' });
-
-    expect(await ask({ type: 'wick:relay-disconnect' })).toEqual({ ok: true });
-
-    expect(seen).toEqual([[`${RELAY_ORIGIN}/v1/revoke`, 'Bearer per-user']]);
-    const saved = await storedSettings();
-    expect(saved.relayToken).toBeNull();
-    expect(saved.relayLabel).toBeNull();
-  });
-
-  it('disconnects locally even when the relay cannot be reached', async () => {
+  it('reports unreachable Telegram as unavailable, and writes nothing', async () => {
     vi.stubGlobal('fetch', async () => {
       throw new Error('offline');
     });
-    settings({ relayToken: 'per-user' });
+    settings({ botToken: null, chatId: null });
 
-    await ask({ type: 'wick:relay-disconnect' });
+    expect(await ask({ type: 'wick:telegram-connect', botToken: '123:ABC' })).toEqual({
+      ok: true,
+      outcome: 'unavailable',
+    });
+    expect((await storedSettings()).botToken).toBeNull();
+  });
 
-    // Refusing to disconnect because a server is down would leave the user
-    // connected to the thing they just asked to leave.
-    expect((await storedSettings()).relayToken).toBeNull();
+  it('forgets locally on disconnect, and tells nobody', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    settings({ botToken: '123:ABC', chatId: 4242, chatLabel: '@someone' });
+
+    expect(await ask({ type: 'wick:telegram-disconnect' })).toEqual({ ok: true });
+
+    // There is nothing to revoke: the bot belongs to the user, and Wick
+    // forgetting a token does not invalidate it. Killing it is @BotFather's job.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const saved = await storedSettings();
+    expect(saved.botToken).toBeNull();
+    expect(saved.chatId).toBeNull();
+    expect(saved.chatLabel).toBeNull();
   });
 
   it("leaves the collector's messages alone", async () => {

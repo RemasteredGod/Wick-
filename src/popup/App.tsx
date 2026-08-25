@@ -3,6 +3,7 @@ import { remainingFor } from '~/assets/mark';
 import { averageMessagesPerDay, messagesToday, peakHour } from '~/core/history';
 import { thresholdState } from '~/core/normalise';
 import { project } from '~/core/projection';
+import { allowanceWindow } from '~/core/windows';
 import type { CollectorStatus, LimitWindow } from '~/core/types';
 import { GearIcon } from './components/GearIcon';
 import { HistoryStrip } from './components/HistoryStrip';
@@ -11,7 +12,13 @@ import { Projection } from './components/Projection';
 import { Settings } from './components/Settings';
 import { TelegramCard } from './components/TelegramCard';
 import { UsageMeter } from './components/UsageMeter';
-import { connectRelay, disconnectRelay, useWickState } from './useWickState';
+import {
+  connectTelegram,
+  disconnectTelegram,
+  finishTelegram,
+  testTelegram,
+  useWickState,
+} from './useWickState';
 
 /**
  * The popup — artboard 02 of the design archive, at its own width.
@@ -19,7 +26,7 @@ import { connectRelay, disconnectRelay, useWickState } from './useWickState';
  * Reproduces the expanded panel: header, two meters, the forecast, three stats,
  * a week of history, and alert status. The panel's own frame (16px radius, 1px
  * border, drop shadow) is dropped here because the popup window already
- * provides one; the injected sidebar panel keeps it. Recorded in docs/design.md.
+ * provides one; the injected sidebar panel keeps it. Recorded in the design notes.
  *
  * Every number comes from `chrome.storage.local` by way of `useWickState`.
  * Presentation reads from the store and never fetches: the one message this
@@ -27,7 +34,7 @@ import { connectRelay, disconnectRelay, useWickState } from './useWickState';
  * is the connect code.
  *
  * The settings screen replaces this view rather than floating over it. A 400px
- * modal does not fit a 372px popup — docs/design.md deviation 3.
+ * modal does not fit a 372px popup — the design notes deviation 3.
  */
 export function App() {
   const { state, ready, update } = useWickState();
@@ -43,8 +50,10 @@ export function App() {
       <Settings
         settings={state.settings}
         onChange={update}
-        onConnect={connectRelay}
-        onDisconnect={disconnectRelay}
+        onConnect={connectTelegram}
+        onFinish={finishTelegram}
+        onTest={testTelegram}
+        onDisconnect={disconnectTelegram}
         onClose={() => setSettingsOpen(false)}
         version={chrome.runtime.getManifest().version}
       />
@@ -52,9 +61,10 @@ export function App() {
   }
 
   const windows = state.snapshot?.windows ?? [];
-  // The weekly window is the one the forecast is about, and the one the history
-  // strip plots. Second in the provider's order, as the archive lays it out.
-  const weekly = windows[1] ?? windows[0];
+  // The allowance window is the one the forecast is about, and the one the
+  // history strip plots. Chosen by what it means, not by where the provider
+  // happened to list it — see src/core/windows.ts.
+  const weekly = allowanceWindow(windows) ?? undefined;
   const remaining = remainingFor(windows.map((w) => w.utilization));
   const worstState = thresholdState(
     remaining === null ? null : 100 - remaining,
@@ -75,7 +85,7 @@ export function App() {
           </span>
           <span class="wick-panel__title">Wick</span>
         </div>
-        {/* The archive badges the plan here. Nothing in docs/protocol.md reports
+        {/* The archive badges the plan here. Nothing in the protocol notes reports
             one, so rather than print a guess the badge is simply absent. */}
       </header>
 
@@ -119,7 +129,7 @@ export function App() {
         <div class="wick-rule" />
 
         <TelegramCard
-          connected={state.settings.relayToken !== null}
+          connected={state.settings.botToken !== null && state.settings.chatId !== null}
           threshold={state.settings.alertThreshold}
           alsoOnReset={state.settings.alertOnReset}
         />

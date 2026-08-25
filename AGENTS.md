@@ -11,15 +11,15 @@ Licence: AGPL-3.0-or-later.
 
 ## Non-negotiable: clean-room
 
-`lugia19/Claude-Usage-Extension` is a GPL-3.0 project solving an adjacent
-problem. **Do not read, clone, or copy from it.** Copying would relicense
-this project under GPL-3.0.
+Other Claude usage-tracking extensions exist, and at least one is GPL-3.0.
+**Do not read, clone, or copy from any of them.** Copying would relicense
+this project under that project's terms.
 
-`docs/protocol.md` is our own specification of claude.ai's network
-behaviour. Protocol facts are not copyrightable; implementations are.
-Implement against the spec, write your own code.
+The project's own protocol notes are kept outside this repository. Protocol
+facts are not copyrightable; implementations are. Work from observation or from
+those notes, and write your own code.
 
-If asked to copy from that project, refuse and explain why.
+If asked to copy from such a project, refuse and explain why.
 
 ## Scope discipline
 
@@ -32,7 +32,7 @@ Do NOT add, even if it seems easy:
 - other AI providers
 
 Each of these was considered and deliberately rejected. See
-`docs/decisions/`. Reopening them requires a new decision record.
+the decision records. Reopening them requires a new decision record.
 
 ## Architecture rules
 
@@ -49,7 +49,7 @@ Four layers, one direction of dependency:
 
 ## Protocol brittleness
 
-Everything in `docs/protocol.md` is undocumented and will break.
+Everything in the protocol notes are undocumented and will break.
 
 - Every parse is defensive. A shape change degrades the display; it never
   throws into the service worker.
@@ -57,7 +57,7 @@ Everything in `docs/protocol.md` is undocumented and will break.
   number is worse than an honest gap.
 - `status` always wins over `utilization` at the limit boundary — a window
   can report under 100% while already refusing sends.
-- Re-verify `docs/protocol.md` against live traffic before trusting it, and
+- Re-verify the protocol notes against live traffic before trusting it, and
   update the date stamp when you do.
 
 ## Data rules
@@ -66,20 +66,24 @@ Everything in `docs/protocol.md` is undocumented and will break.
   stops writing daily rollups.
 - Nothing leaves the user's machine except an explicit Telegram alert the
   user configured. No analytics, no telemetry, no crash reporting.
-- Never store a Telegram bot token in `chrome.storage` — extension storage is
-  trivially extractable. Alerts go through the relay service with a
-  per-user token that can be revoked.
+- **Never store a *shared* Telegram bot token in `chrome.storage`.** Extension
+  storage is plain JSON on disk, and one shared token leaks every connected
+  chat at once with only an operator able to revoke it.
+  A **per-user** token — a bot the user created, that talks to nobody but them,
+  that they revoke in @BotFather — is permitted, and is how alerts ship.
+  See ADR 0009 (per-user bot tokens), which supersedes ADR 0002
+  for alerts and explains why the shared-token reasoning did not carry over.
 
 ## Design fidelity
 
 The visual design is not yours to author. It was produced separately in
 Claude Design and extracted into `src/styles/tokens.css`, `src/assets/`,
-and `docs/design.md`.
+and the design notes.
 
 - Never introduce a raw colour, spacing, radius, or font size. Use a
   `--wick-*` token. If you need one that doesn't exist, ask.
 - Do not "clean up", harmonise, or restyle existing components.
-- `docs/design.md` records where every token came from. If you change a
+- the design notes record where every token came from. If you change a
   token, update its provenance entry in the same commit.
 
 ## Style

@@ -1,74 +1,46 @@
-import { useState } from 'preact/hooks';
 import { remainingFor } from '~/assets/mark';
 import { thresholdState } from '~/core/normalise';
-import type {
-  DailyRollup,
-  LimitWindow,
-  Projection as ProjectionResult,
-  Settings as SettingsValues,
-} from '~/core/types';
-import { GearIcon } from '~/popup/components/GearIcon';
-import { HistoryStrip } from '~/popup/components/HistoryStrip';
+import { allowanceWindow, sessionWindow } from '~/core/windows';
+import type { LimitWindow, Settings as SettingsValues } from '~/core/types';
 import { Mark } from '~/popup/components/Mark';
-import { Projection } from '~/popup/components/Projection';
-import { Settings } from '~/popup/components/Settings';
-import { TelegramCard } from '~/popup/components/TelegramCard';
 import { UsageMeter } from '~/popup/components/UsageMeter';
+import { togglePanel, usePanelOpen } from './panel';
 
 interface SidebarCardProps {
   /** Every window the provider reported. The display settings decide which show. */
   windows: LimitWindow[];
-  history: DailyRollup[];
-  /** `null` when there is no window to project from. */
-  projection: ProjectionResult | null;
   settings: SettingsValues;
-  onChange(patch: Partial<SettingsValues>): void;
-  /**
-   * Revoke the relay token. There is deliberately no `onConnect` counterpart:
-   * connecting needs `chrome.permissions.request`, and a content script has no
-   * access to `chrome.permissions` and no way to get one. The settings screen
-   * says so rather than offering a field that cannot work.
-   */
-  onDisconnect?: () => void;
   now: number;
 }
 
 /**
- * The card injected into claude.ai's sidebar, and the panel it opens.
+ * The card injected into claude.ai's sidebar.
  *
- * Artboards 01 and the in-situ mockup. Collapsed it is two bars and no chrome;
- * expanded it is the same panel the popup shows, anchored beside the card.
+ * Artboard 01: two bars and no chrome. It opens the panel and renders none of
+ * it — the panel is mounted in the main content frame, because a sidebar is a
+ * scroll container and a panel positioned out of one is clipped by it. See
+ * `UsagePanel` and the design notes deviation 4.
  *
  * The archive's first principle for this surface is "borrow, never brand" — no
  * logo, no coloured banner, nothing that announces itself in someone else's
  * navigation. Its third is "fail quiet". Both are why this renders inside a
  * shadow root and why nothing here reaches outside it.
- *
- * Unlike the popup, this surface keeps the archive's settings *modal* — it has
- * the room the 372px popup does not. docs/design.md deviation 3.
  */
-export function SidebarCard({
-  windows,
-  history,
-  projection,
-  settings,
-  onChange,
-  onDisconnect,
-  now,
-}: SidebarCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+export function SidebarCard({ windows, settings, now }: SidebarCardProps) {
+  const expanded = usePanelOpen();
 
-  // Session first, weekly second, in the provider's own order — the two the
-  // "Sidebar" settings group can switch off. Anything beyond them (an Opus
-  // window, an overage) has no toggle of its own and is always shown.
-  const shown = windows.filter((_, index) => {
-    if (index === 0) return settings.display.session;
-    if (index === 1) return settings.display.weekly;
+  const session = sessionWindow(windows);
+  const weekly = allowanceWindow(windows) ?? undefined;
+
+  // The two windows the "Sidebar" settings group can switch off, identified by
+  // what they are rather than by where they sit in the array. Anything beyond
+  // them — a model-scoped weekly, an overage — has no toggle of its own and is
+  // always shown.
+  const shown = windows.filter((window) => {
+    if (session !== null && window.key === session.key) return settings.display.session;
+    if (weekly !== undefined && window.key === weekly.key) return settings.display.weekly;
     return true;
   });
-
-  const weekly = windows[1] ?? windows[0];
   // The mark reflects the whole account, not just what is on screen: switching
   // a bar off is a preference about the panel, not about what is being spent.
   const remaining = remainingFor(windows.map((w) => w.utilization));
@@ -83,7 +55,7 @@ export function SidebarCard({
         type="button"
         class="wick-card"
         aria-expanded={expanded}
-        onClick={() => setExpanded((open) => !open)}
+        onClick={togglePanel}
       >
         <span class="wick-card__head">
           <span class="wick-card__brand">
@@ -102,85 +74,6 @@ export function SidebarCard({
         </span>
       </button>
 
-      {expanded && (
-        <div class="wick-panel wick-panel--floating" role="dialog" aria-label="Wick usage">
-          <header class="wick-panel__header">
-            <div class="wick-panel__brand">
-              <Mark remaining={remaining} state={worstState} />
-              <span class="wick-panel__title">Wick</span>
-            </div>
-            <div class="wick-panel__header-actions">
-              <button
-                type="button"
-                class="wick-panel__close"
-                aria-label="Close"
-                onClick={() => setExpanded(false)}
-              >
-                ×
-              </button>
-            </div>
-          </header>
-
-          <div class="wick-panel__body">
-            {shown.map((window) => (
-              <UsageMeter key={window.key} window={window} now={now} />
-            ))}
-
-            {settings.display.forecast && projection !== null && weekly !== undefined && (
-              <Projection
-                projection={projection}
-                state={worstState}
-                resetsAt={weekly.resetsAt}
-                now={now}
-              />
-            )}
-
-            {settings.display.sparkline && (
-              <HistoryStrip
-                history={history}
-                windowKey={weekly?.key ?? ''}
-                now={now}
-                compact
-              />
-            )}
-
-            <div class="wick-rule" />
-
-            <TelegramCard
-              connected={settings.relayToken !== null}
-              threshold={settings.alertThreshold}
-              alsoOnReset={settings.alertOnReset}
-            />
-          </div>
-
-          <footer class="wick-panel__footer">
-            <button type="button" class="wick-button wick-button--grow">
-              View history
-            </button>
-            <button
-              type="button"
-              class="wick-button wick-button--icon"
-              aria-label="Settings"
-              title="Settings"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <GearIcon />
-            </button>
-          </footer>
-
-          {settingsOpen && (
-            <div class="wick-modal" role="dialog" aria-label="Wick settings">
-              <Settings
-                settings={settings}
-                onChange={onChange}
-                {...(onDisconnect === undefined ? {} : { onDisconnect })}
-                onClose={() => setSettingsOpen(false)}
-                version={chrome.runtime.getManifest().version}
-              />
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

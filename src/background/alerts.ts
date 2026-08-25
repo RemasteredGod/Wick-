@@ -1,5 +1,5 @@
 /**
- * Threshold alerts: local notifications, and Telegram via the relay.
+ * Threshold alerts: local notifications, and Telegram directly.
  *
  * Three message types, at most one per event — a threshold crossing, a window
  * rolling over, and a weekly summary. That ceiling is the feature: a tracker
@@ -13,15 +13,16 @@
  * cycle?" is answerable from storage every time.
  *
  * Never holds a Telegram bot token. See
- * docs/decisions/0002-telegram-relay-not-bot-token.md, and
- * docs/decisions/0003-telegram-relay-design.md for what the relay is.
+ * ADR 0009 (per-user bot tokens) for why alerts go straight to
+ * api.telegram.org with the user's own bot token.
  *
  * Nothing in this file may throw into the service worker.
  */
 
-import { isRuntimeMessage, type RelayConnectOutcome, type RuntimeResponse } from '~/core/messages';
+import { isRuntimeMessage, type ConnectOutcome, type RuntimeResponse } from '~/core/messages';
 import { field, localDateKey } from '~/core/normalise';
 import { project } from '~/core/projection';
+import { allowanceWindow } from '~/core/windows';
 import type {
   AlertKind,
   AlertRecord,
@@ -30,9 +31,19 @@ import type {
   LimitWindow,
   Projection,
   Settings,
+  WindowRole,
 } from '~/core/types';
-import { connect, revoke, send, type RelayFailure } from './relay';
-import { KEYS, readAlerts, readHistory, readSettings, recordAlert, writeSettings } from './store';
+import { discoverChat, send, verifyToken, type TelegramFailure } from './telegram';
+import {
+  KEYS,
+  readAccountId,
+  readAlerts,
+  readHistory,
+  readSettings,
+  readSnapshot,
+  recordAlert,
+  writeSettings,
+} from './store';
 
 /**
  * Icon for the local notification.
@@ -58,7 +69,7 @@ const DAY_MS = 86_400_000;
  * leaves the collector's listener free to answer the rest.
  */
 export function initAlerts(): void {
-  chrome.runtime.onMessage.addListener(handleRelayMessage);
+  chrome.runtime.onMessage.addListener(handleTelegramMessage);
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -91,7 +102,9 @@ export async function evaluateSnapshotChange(
 
     const previous = readWindows(before);
     const settings = await readSettings();
-    const history = await readHistory();
+    // The signed-in account's own record. An alert about this week's pace must
+    // not be computed from another organisation's week.
+    const history = await readHistory(await readAccountId());
 
     const pending = [
       ...thresholdAlerts(next, settings, history, now),
@@ -226,29 +239,17 @@ function rolloverAlerts(
 /**
  * Which window the threshold applies to.
  *
- * Chosen structurally — the active window that resets furthest out — rather
- * than by matching a provider's key. `'7d'` is a claude.ai spelling, and
- * nothing outside `src/providers/` is allowed to know it. The longest cycle is
- * the weekly one for any provider that meters this way, and if a provider ever
- * ships two windows of the same length the tie falls to the one it listed last,
- * which is display order: session first, allowance second.
+ * The shared selector, so the alert is about the same window the panel is
+ * forecasting — two different answers to "which one is the weekly" is a bug
+ * report waiting to happen. It prefers the role the provider assigned and falls
+ * back to the structural test this used to do alone: the active window that
+ * resets furthest out is the weekly one for any provider that meters this way.
+ *
+ * Re-exported rather than inlined at the call sites because it is part of this
+ * module's tested surface.
  */
 export function weeklyWindow(windows: LimitWindow[]): LimitWindow | null {
-  const active = windows.filter((window) => window.active);
-  if (active.length === 0) return null;
-
-  let best: LimitWindow | null = null;
-  let bestAt = Number.NEGATIVE_INFINITY;
-
-  for (const window of active) {
-    if (window.resetsAt === null) continue;
-    if (window.resetsAt >= bestAt) {
-      best = window;
-      bestAt = window.resetsAt;
-    }
-  }
-
-  return best ?? active[active.length - 1] ?? null;
+  return allowanceWindow(windows);
 }
 
 /* ---- Copy ---------------------------------------------------------------- *
@@ -447,16 +448,17 @@ async function dispatch(alert: PendingAlert, settings: Settings, now: number): P
 
   await notify(alert.text);
 
-  // The relay is optional and always second. The local path works today under
-  // the existing `notifications` permission; the relay needs a host permission
-  // the extension does not yet have. See ADR 0003.
-  if (settings.relayToken === null) return;
+  // Telegram is optional and always second. The local path works under the
+  // existing `notifications` permission; sending needs a host permission the
+  // user may never have granted. Both halves must be present — a token with no
+  // chat has nowhere to go. See ADR 0009.
+  if (settings.botToken === null || settings.chatId === null) return;
 
   try {
     // The result is deliberately unused: there is no retry, no queue, and no
     // fallback. A late threshold warning is worse than a missing one, and a
-    // retry storm is how the relay gets itself blocked for everyone.
-    await send({ kind: alert.kind, text: alert.text });
+    // retry storm is how a bot gets itself rate limited.
+    await send(alert.text);
   } catch {
     // `send` returns failures rather than throwing, so this is only reachable
     // if the module itself is broken. Still not the worker's problem.
@@ -500,27 +502,27 @@ async function notify(text: string): Promise<void> {
 
 /* ---- The connect flow ---------------------------------------------------- *
  * Redeeming a code and revoking a token are the two writes to
- * `Settings.relayToken`, and they live here rather than in the popup because
+ * the Telegram settings, and they live here rather than in the popup because
  * presentation never fetches. The popup asks for the host permission — that
  * needs a user gesture, and a service worker does not have one — and then hands
  * the code over.                                                              */
 
 /**
- * Answer the two relay messages. Returns `false` for anything else, so the
+ * Answer the two Telegram messages. Returns `false` for anything else, so the
  * collector's listener still sees it.
  *
  * Exported for tests, which drive it directly: the reply is asynchronous, and
  * the reply is the whole point.
  */
-export function handleRelayMessage(
+export function handleTelegramMessage(
   message: unknown,
   _sender: chrome.runtime.MessageSender,
   sendResponse: (response: RuntimeResponse) => void,
 ): boolean {
   if (!isRuntimeMessage(message)) return false;
 
-  if (message.type === 'wick:relay-connect') {
-    void redeem(message.code)
+  if (message.type === 'wick:telegram-connect') {
+    void connectBot(message.botToken)
       .then((outcome) => sendResponse({ ok: true, outcome }))
       // `redeem` does not throw, but a storage write that fails would land
       // here, and the settings screen needs an answer either way.
@@ -528,7 +530,21 @@ export function handleRelayMessage(
     return true;
   }
 
-  if (message.type === 'wick:relay-disconnect') {
+  if (message.type === 'wick:telegram-finish') {
+    void finishConnect()
+      .then((outcome) => sendResponse({ ok: true, outcome }))
+      .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
+    return true;
+  }
+
+  if (message.type === 'wick:telegram-test') {
+    void sendTest()
+      .then((outcome) => sendResponse({ ok: true, outcome }))
+      .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
+    return true;
+  }
+
+  if (message.type === 'wick:telegram-disconnect') {
     void disconnect()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: true }));
@@ -539,45 +555,128 @@ export function handleRelayMessage(
 }
 
 /**
- * Exchange a connect code for a token and store it.
+ * Verify a pasted token, find the chat, and store both.
  *
- * The token is written here and read only by `relay.send`. Nothing else in Wick
- * touches it, and it never reaches the popup — the settings screen renders
- * `relayLabel` and the fact that a token exists, not the token.
+ * Two calls, in this order, and nothing is written until both succeed. A token
+ * stored without a chat looks connected on the settings screen and silently
+ * sends nothing, which is the worst of the available failures.
+ *
+ * The token is written here and read only by `telegram.send`. Nothing else in
+ * Wick touches it, and it never travels back to the popup — the settings screen
+ * renders `chatLabel` and the fact that a token exists, not the token.
  */
-async function redeem(code: string): Promise<RelayConnectOutcome> {
-  const result = await connect(code);
-  if (!result.ok) return outcomeFor(result.failure);
+async function connectBot(botToken: string): Promise<ConnectOutcome> {
+  const trimmed = botToken.trim();
+  if (trimmed === '') return 'bad-token';
 
-  await writeSettings({ relayToken: result.value.token, relayLabel: result.value.label });
+  const verified = await verifyToken(trimmed);
+  if (!verified.ok) return outcomeFor(verified.failure);
+
+  // The token is kept the moment Telegram vouches for it, before the chat is
+  // known. That is a real half-connected state and it is deliberate: the user
+  // still has to message their bot, and making them re-paste a 46-character
+  // token to do it would be a bad trade. What must never happen is a
+  // half-connected state that *looks* finished — `chatId` stays null, and both
+  // the settings screen and `dispatch` read it rather than the token.
+  await writeSettings({ botToken: trimmed, chatId: null, chatLabel: verified.value });
+
+  return finishConnect();
+}
+
+/**
+ * Find the chat, and prove it works.
+ *
+ * Split out because it is also the whole of the second attempt: the user pastes
+ * a token, is told to message their bot, does it, and presses Finish. Reads the
+ * token from storage rather than taking it, so nothing has to carry a
+ * credential back across the popup boundary to get here.
+ *
+ * On success it **sends a message**. A settings screen that says "Connected" has
+ * only proved it can write to its own storage; a message arriving in Telegram is
+ * the only evidence the user actually wanted.
+ */
+async function finishConnect(): Promise<ConnectOutcome> {
+  const { botToken } = await readSettings();
+  if (botToken === null) return 'bad-token';
+
+  const chat = await discoverChat(botToken);
+  if (!chat.ok) return outcomeFor(chat.failure);
+
+  await writeSettings({ chatId: chat.value.chatId, chatLabel: chat.value.label });
+
+  try {
+    await send(await connectedMessage(Date.now()));
+  } catch {
+    // The connection is real even if this one message did not land. Reporting
+    // failure here would tell the user to redo something that is already done.
+  }
+
   return 'ok';
 }
 
 /**
- * Revoke the token, then forget it locally — in that order, because `revoke`
- * reads the token out of the same field it is about to be cleared from.
+ * Send a test message.
  *
- * The local clear happens whatever the relay answers. Refusing to disconnect
- * because a server is unreachable would leave the user connected to something
- * they have just said they want no part of; the orphaned row expires on its own.
+ * Deliberately just "hi". A test whose content is elaborate tests the composer
+ * as well as the connection, and when it fails the user cannot tell which broke.
+ */
+async function sendTest(): Promise<ConnectOutcome> {
+  const result = await send('hi');
+  return result.ok ? 'ok' : outcomeFor(result.failure);
+}
+
+/**
+ * What Wick says when it first says anything.
+ *
+ * Carries the current reading rather than a bare "connected", so the message
+ * doubles as proof the whole path works — token, chat, and the numbers the
+ * alerts will be about.
+ *
+ * A fresh install has no snapshot yet. It says so instead of reporting zero,
+ * which is the same rule the rest of Wick follows: a number nobody has measured
+ * is unknown, not nought.
+ */
+export async function connectedMessage(now: number): Promise<string> {
+  const [snapshot, history] = await Promise.all([readSnapshot(), readHistory()]);
+  const window = weeklyWindow(snapshot?.windows ?? []);
+
+  if (window === null || window.utilization === null) {
+    return 'Wick is connected. No usage reading yet — open claude.ai and it will start tracking.';
+  }
+
+  return `Wick is connected.
+${thresholdMessage(window, project({ window, history, now }), now)}`;
+}
+
+/**
+ * Forget the token and the chat.
+ *
+ * There is nothing to revoke and nobody to tell: the bot belongs to the user,
+ * and Wick forgetting a token does not invalidate it. If they want it dead they
+ * revoke it in @BotFather, which the settings screen says rather than implying
+ * this button did it.
  */
 async function disconnect(): Promise<void> {
-  await revoke();
-  await writeSettings({ relayToken: null, relayLabel: null });
+  await writeSettings({ botToken: null, chatId: null, chatLabel: null });
 }
 
 /**
  * Which failures the user can act on.
  *
- * Only two distinctions are worth making to them: the code was stale, or it was
- * not the code's fault. `offline` is the shape a missing host permission takes
- * — the request never leaves the worker — but by the time a connect is
- * attempted the popup has already asked for that grant, so reporting it as
- * "could not reach the relay" is the honest reading rather than a guess about
- * permissions.
+ * Three distinctions are worth making: the token is wrong, the user has not
+ * messaged their bot yet, and everything else. The middle one is the commonest
+ * outcome of a first attempt and the only one where the fix is a step the user
+ * has not taken rather than a mistake they have made.
+ *
+ * `offline` is also the shape a missing host permission takes — the request
+ * never leaves the worker — but by the time a connect is attempted the popup
+ * has already asked for that grant, so reading it as "could not reach
+ * Telegram" is honest rather than a guess about permissions.
  */
-function outcomeFor(failure: RelayFailure): RelayConnectOutcome {
-  return failure === 'rejected' ? 'invalid-code' : 'unavailable';
+function outcomeFor(failure: TelegramFailure): ConnectOutcome {
+  if (failure === 'bad-token') return 'bad-token';
+  if (failure === 'no-chat') return 'no-chat';
+  return 'unavailable';
 }
 
 /* ---- Guards -------------------------------------------------------------- *
@@ -615,7 +714,17 @@ function asWindow(value: unknown): LimitWindow | null {
     // Absent means present: a window a provider forgot to flag should still be
     // considered, and the alternative is ignoring it forever.
     active: field(value, 'active') !== false,
+    // A window stored before roles existed has none. `'other'` keeps it out of
+    // the forecast and the threshold alert, and `weeklyWindow` falls back to
+    // picking structurally, which is what it did for all of them before.
+    role: asRole(field(value, 'role')),
   };
+}
+
+const ROLES = ['session', 'weekly', 'weekly-model', 'overage', 'other'] as const;
+
+function asRole(value: unknown): WindowRole {
+  return (ROLES as readonly string[]).includes(value as string) ? (value as WindowRole) : 'other';
 }
 
 function asStatus(value: unknown): LimitStatus {

@@ -1,75 +1,147 @@
 # Privacy
 
-Short version: Wick keeps your usage data on your own machine, and sends nothing
-anywhere unless you explicitly set up an alert channel.
+Short version: Wick keeps browser usage data on your machine. Two optional
+features send data elsewhere only after you set them up: Telegram alerts send
+the alert you configured, and the separate `wick-cc` reporter sends aggregate
+Claude Code token totals after you opt into the public leaderboard.
 
-## What Wick stores, and where
+## Browser extension data
 
-Everything is in `chrome.storage.local`, in your browser profile, on your
-computer:
+The extension stores these values in `chrome.storage.local`, in your browser
+profile:
 
-- **Current snapshot** — the latest percentage, status and reset time for each
+- **Current snapshot** — the latest percentage, status, and reset time for each
   limit window.
-- **Daily history** — one small record per day: the date, the peak percentage
-  reached in each window, and a message count. This is what the burn-rate
-  projection reads.
-- **Settings** — your alert thresholds and display preferences.
+- **Daily history** — the date, peak percentage per window, and a message count,
+  used for the burn-rate projection.
+- **Settings** — display and alert preferences and, if you set up alerts, the
+  Telegram bot token you created, the chat id it sends to, and a display label.
 
-That is the whole list. Wick does not store conversation content, prompts,
-responses, titles, or anything you type into Claude. It has no interest in them
-and does not read them.
+It does not store conversation content, prompts, responses, or titles. By
+default it makes no network request other than to claude.ai: there is no
+analytics, telemetry, crash reporting, usage reporting, or phone-home on install
+or update.
 
-## What Wick sends
+## Optional Telegram alerts
 
-**By default: nothing.** There is no analytics, no telemetry, no crash
-reporting, no usage statistics, and no phone-home on install or update. No
-server learns that you installed this extension.
+If you connect Telegram, the extension sends an alert when a threshold or reset
+you configured occurs. The alert contains the percentage, pace, and projected
+exhaustion time shown locally. It contains no prompt, response, or project data.
 
-**If you connect Telegram alerts:** a message goes out when a threshold you
-configured is crossed. It contains your usage percentage, your pace, and the
-projected exhaustion time — the same numbers shown in the panel. It contains
-nothing about what you were doing in Claude.
+**Alerts go straight from your browser to `https://api.telegram.org`. There is
+no Wick server in the path, and no operator who can see that you received an
+alert or when.**
 
-Alerts route through a relay service rather than posting to Telegram directly
-from your browser, because the alternative means storing a Telegram bot token in
-extension storage, which is trivially extractable. Your installation holds a
-per-user token you can revoke; it never holds a bot credential. See
-[`docs/decisions/0002-telegram-relay-not-bot-token.md`](docs/decisions/0002-telegram-relay-not-bot-token.md).
+This works because you create the bot yourself with @BotFather, and Wick stores
+that token in `chrome.storage.local`. Being straightforward about what that
+means: **extension storage is plain JSON on disk, not a vault.** Any program
+running as you can read it. Two things bound what that costs you — the bot is
+yours and talks to nobody but you, and anything able to read that file can
+already read your claude.ai session cookies sitting beside it. You can revoke
+the token at any time in @BotFather, which stops it working everywhere, not just
+here. See
+ADR 0009.
 
-The relay service is designed but not deployed yet. What it will store, what it
-will not store, and how to delete it are written down in
-[`docs/decisions/0003-telegram-relay-design.md`](docs/decisions/0003-telegram-relay-design.md)
-— including the parts that are not flattering. In short: a hashed token, the
-Telegram chat to deliver to, and two day-granularity dates. No message text, no
-percentages, no send timestamps. This file will restate it plainly once the
-service exists.
+Wick reads Telegram twice. Once during setup, to learn which chat to send to —
+you are never asked to look up a chat id. And once per polling tick, so the bot
+can answer `/weekly` and `/daily` without a server. **It only ever replies to
+the chat you connected**; a bot username is public, and a message from anyone
+else is read and discarded rather than answered.
 
-Wick cannot reach the relay at all until you allow it. The relay's origin is an
-*optional* host permission, requested from the Connect button in settings and
-nowhere else; decline it, or revoke it later in Chrome, and every relay call
-fails before it leaves your machine.
+The Telegram origin is an optional Chrome host permission requested only from
+the Connect button. Declining or revoking it blocks alerts without affecting
+collection, projections, the toolbar icon, or local notifications.
 
-## What Wick reads from claude.ai
+## Optional Claude Code leaderboard
 
-- The `lastActiveOrg` cookie, to know which organisation's limits to show. Only
-  this cookie, only on claude.ai. Wick does not read your session cookie and
-  cannot authenticate as you outside your own browser.
-- The usage endpoint, which returns your current limit percentages.
-- The tail of completion responses, where claude.ai reports updated limit state.
-  Wick looks for the limit event and discards the rest — it does not retain,
-  log, or transmit message content.
+The leaderboard is a separate opt-in feature provided by the standalone
+`wick-cc` command-line reporter. Installing or logging into that reporter does
+not enable submissions; `wick-cc optin` is required.
 
-Host access is restricted to `https://claude.ai/*`. Wick cannot see any other
-site you visit. The one other origin it can be granted — the Telegram relay —
-is optional, off until you ask for it, and described above.
+The reporter reads Claude Code's local JSONL transcripts but accepts only the
+record type and timestamp, message ID/role/model, and the four first-party API
+usage counters. It uses those fields to validate, deduplicate, date, and
+aggregate locally. It does not read for product use or transmit prompts,
+responses, tool calls, working directories, project/repository names, or file
+paths. Missing counts are skipped, never estimated.
 
-## Deleting your data
+A submission contains one local calendar day, one daily session count, and
+bounded per-model-family totals for input, output, cache creation, and cache read
+tokens. The relay sums the families and stores only:
 
-Removing the extension from Chrome deletes its local storage, which is all of
-it.
+- the submitting token's SHA-256 hash and the Telegram-chat-scoped profile;
+- the chosen public display name;
+- the day;
+- aggregate input, output, cache creation, cache read, and session totals;
+- whether the user explicitly enabled the weekly digest;
+- day/week-granularity state needed to avoid duplicate digests.
+
+It does not store family/model IDs, message IDs, project or repository names,
+paths, prompts, responses, per-session rows, Claude account or organisation IDs,
+or a submission timestamp. Re-submitting the same token and day replaces the
+row rather than adding to it.
+
+The public page at `https://usewick.lol` publishes the chosen display
+name and aggregate week, month, or all-time totals and last submitted day. It
+labels every board **self-reported** because the figures cannot be independently
+verified. The page has no analytics, cookies, client-side application, or
+third-party assets and is cached for 60 seconds.
+
+The weekly Telegram leaderboard digest is off by default and is sent only after
+`/digest on`.
+
+See
+ADR 0005
+and ADR 0006.
+
+## Hosting logs
+
+Cloudflare keeps a platform request log under its account policy. It can include
+a timestamp, route, status, user agent, and client IP. Retention must be set to
+the shortest available period, and Wick configures no log drain, export, or
+third-party error tracker. Application code logs no request bodies, alert text,
+submission values, tokens or hashes, or Telegram chat IDs.
+
+A reporter retry or changed same-day total can create more than one short-lived
+platform log entry even though D1 keeps only one logical daily value. Anyone who
+does not accept that should leave Telegram disconnected and not opt into the
+leaderboard; all extension tracking remains local.
+
+Telegram separately stores bot messages under Telegram's policies. Bot chats
+are not end-to-end encrypted.
+
+## What the extension reads from claude.ai
+
+- The `lastActiveOrg` cookie, used only to identify which organisation's limits
+  to show. Wick does not read your session cookie.
+- The usage endpoint, which returns current limit percentages.
+- The tail of completion responses, where claude.ai reports limit state. Wick
+  extracts that event and discards the rest.
+
+Required host access is restricted to `https://claude.ai/*`. The optional Telegram
+origin is the only other host the extension can be granted.
+
+## Deleting data
+
+- Removing the extension deletes its local browser storage.
+- Disconnect forgets the bot token and chat id locally. It does not revoke the
+  bot — only @BotFather can do that, and doing so is worth it if you think the
+  token leaked.
+- The leaderboard is a separate, optional program with its own connection.
+  Removing the extension does not delete anything you submitted to it.
+- `wick-cc optout` or Telegram `/optout` deletes the public profile and all
+  leaderboard rows while retaining alert connections.
+- `wick-cc forget`, authenticated `POST /v1/delete`, or Telegram `/forget`
+  deletes all connections, unredeemed codes, leaderboard rows/profile, and
+  pending digest state for that Telegram chat.
+
+Alerts leave no server-side trace to delete: they go straight to Telegram, and
+no Wick server is in the path. The leaderboard's platform request logs expire on
+its host's retention schedule and are not removed by these application-level
+deletion operations.
 
 ## Verifying this
 
-Wick is AGPL-3.0-or-later. The source is the specification: if this file and the
-code ever disagree, the code is the truth and the disagreement is a bug worth
-reporting.
+The extension, relay, and reporter are AGPL-3.0-or-later. Their source and D1
+schema are the specification: if this policy and the running code disagree, the
+code is the truth and the disagreement is a bug worth reporting.

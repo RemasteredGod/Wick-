@@ -12,7 +12,7 @@
  *
  * This is deliberately separate from the percentage. A window can sit below
  * 100% and still be refusing sends, and when the two disagree the status is the
- * one that matches what the user is experiencing. See docs/protocol.md.
+ * one that matches what the user is experiencing. See the protocol notes.
  */
 export type LimitStatus =
   /** Accepting requests normally. */
@@ -23,6 +23,28 @@ export type LimitStatus =
   | 'exceeded'
   /** The provider did not tell us. Never treat this as 'ok'. */
   | 'unknown';
+
+/**
+ * What a window *is*, independent of what the provider calls it or where it
+ * appeared in a response.
+ *
+ * Presentation needs to pick "the window the forecast is about" and alerts need
+ * to pick "the one the threshold applies to". Both used to do it by array index,
+ * which is a promise claude.ai never made: it can reorder its own response, and
+ * a plan with model-scoped weeklies has more than two entries. The provider
+ * classifies once, at the boundary, and everything downstream selects by meaning.
+ */
+export type WindowRole =
+  /** The short rolling window — claude.ai's five hours. */
+  | 'session'
+  /** The account-wide weekly allowance. At most one of these. */
+  | 'weekly'
+  /** A weekly allowance scoped to one model. There can be several. */
+  | 'weekly-model'
+  /** Metered usage beyond the plan. */
+  | 'overage'
+  /** Something new the provider started reporting. Tracked, never featured. */
+  | 'other';
 
 /**
  * A single limit window — a five-hour session, a weekly allowance, whatever the
@@ -55,6 +77,26 @@ export interface LimitWindow {
   resetsAt: number | null;
   /** Whether this window is currently metering anything. */
   active: boolean;
+  /** What this window means. Assigned by the provider; see `WindowRole`. */
+  role: WindowRole;
+  /**
+   * Which model or feature the window is scoped to, when `role` is
+   * `'weekly-model'`. Display only — the scope is already folded into `key`,
+   * because two windows that share a key share a history and a projection.
+   */
+  scope?: string;
+  /**
+   * Where this particular window's numbers came from, and when.
+   *
+   * Stamped by the store as it merges, never set by a provider: a provider
+   * reports what it read, and only the store knows which reading it was. They
+   * are per-window rather than per-snapshot because a snapshot can hold a fresh
+   * authoritative weekly beside a session window last seen on a stream — and
+   * merging honestly means being able to say which is which.
+   */
+  source?: SnapshotSource;
+  /** Epoch milliseconds when this window was observed. Stamped by the store. */
+  observedAt?: number;
 }
 
 /** Where a reading came from. Lower trust than `usage` never overwrites it. */
@@ -69,9 +111,22 @@ export type SnapshotSource =
 /** The latest known state, as displayed. One per provider. */
 export interface Snapshot {
   providerId: string;
+  /**
+   * Which account these numbers belong to — claude.ai's organisation id.
+   *
+   * Without it, switching organisations shows one account's limits under the
+   * other's name until the next poll lands, and there is no way for the store to
+   * know that a merge would be mixing two accounts' readings. `null` means the
+   * reading predates account tagging, or the provider could not identify one.
+   */
+  accountId: string | null;
   windows: LimitWindow[];
   /** Epoch milliseconds when this reading was taken. */
   fetchedAt: number;
+  /**
+   * The source of the most recent reading folded into this snapshot. Individual
+   * windows carry their own, which is the one to trust when they differ.
+   */
   source: SnapshotSource;
 }
 
@@ -84,6 +139,16 @@ export interface DailyRollup {
   /** Local calendar date, `YYYY-MM-DD`. */
   date: string;
   /**
+   * The account this day belongs to. Absent on rollups written before Wick
+   * tracked accounts, which are shown to whoever is signed in — there was only
+   * ever one account writing them.
+   *
+   * A rollup is identified by date *and* account: two organisations used on the
+   * same day are two rows, because merging them would invent a day neither
+   * account had.
+   */
+  accountId?: string;
+  /**
    * Highest utilization observed in each window that day, keyed by
    * `LimitWindow.key`. Peak rather than final, because a window that reset
    * mid-day would otherwise erase its own evidence.
@@ -95,7 +160,7 @@ export interface DailyRollup {
    * Messages per hour of the local day, 24 entries, index 0 = midnight.
    *
    * Kept because "peak hr" is on the panel and there is no other source for it
-   * — docs/protocol.md §"What the protocol does not give you" rules out
+   * — the protocol notes §"What the protocol does not give you" rules out
    * anything finer. Costs 24 small integers a day.
    */
   hourlyMessages: number[];
@@ -141,7 +206,7 @@ export type ThresholdState = 'ok' | 'warn' | 'crit' | 'unknown';
  * Boundaries between threshold states, in percent.
  *
  * The design archive does not specify these; it shows one warn instance at 82%,
- * which is consistent with the band below. See docs/design.md.
+ * which is consistent with the band below. See the design notes.
  */
 export const THRESHOLDS = {
   /** At or above this, a window is warning. */
@@ -161,11 +226,14 @@ export interface DisplayOptions {
 /**
  * User settings.
  *
- * Note what is absent: there is no Telegram bot token here and there never will
- * be. `chrome.storage.local` is plain JSON on disk, and a bot token is an
- * unscoped bearer credential the user cannot contain once it leaks. What Wick
- * holds is a per-user relay token it can revoke.
- * See docs/decisions/0002-telegram-relay-not-bot-token.md.
+ * `botToken` is a Telegram bot token, and it is here deliberately.
+ * `chrome.storage.local` is plain JSON on disk, so this is not a vault — but
+ * the bot it governs was created by this user and talks to nobody but them,
+ * they revoke it themselves in @BotFather, and anyone able to read this file
+ * can already read the claude.ai session cookies beside it.
+ * See ADR 0009 (per-user bot tokens), which supersedes ADR 0002 for
+ * alerts and explains why that record's reasoning did not survive the move to
+ * per-user bots.
  */
 export interface Settings {
   /** Weekly percentage at which an alert fires. Archive offers 50/80/90/95. */
@@ -173,18 +241,21 @@ export interface Settings {
   /** Also send a message when a window rolls over. */
   alertOnReset: boolean;
   display: DisplayOptions;
-  /** Revocable per-user relay token, or null when alerts are not set up. */
-  relayToken: string | null;
+  /** The user's own bot token, or null when alerts are not set up. */
+  botToken: string | null;
+  /** The chat alerts go to. Discovered, never typed — see background/telegram.ts. */
+  chatId: number | null;
   /** Human label for where alerts land, for display only. */
-  relayLabel: string | null;
+  chatLabel: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   alertThreshold: 80,
   alertOnReset: true,
   display: { session: true, weekly: true, forecast: true, sparkline: true },
-  relayToken: null,
-  relayLabel: null,
+  botToken: null,
+  chatId: null,
+  chatLabel: null,
 };
 
 /** Thresholds the settings screen offers. From artboard 03. */

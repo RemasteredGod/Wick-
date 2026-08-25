@@ -13,17 +13,26 @@
  */
 
 import { isRuntimeMessage, type RuntimeMessage, type RuntimeResponse } from '~/core/messages';
-import type { LimitWindow } from '~/core/types';
+import type { LimitWindow, Snapshot, SnapshotSource } from '~/core/types';
 import { claudeProvider } from '~/providers/claude';
 import type { UsageProvider, UsageResult } from '~/providers/types';
-import { initAlarms } from './alarms';
-import { readState, recordMessage, recordReading, writeSnapshot, writeStatus } from './store';
+import { initAlarms, syncPollCadence } from './alarms';
+import {
+  clearSnapshot,
+  readAccountId,
+  readState,
+  recordMessage,
+  recordReading,
+  writeAccountId,
+  writeSnapshot,
+  writeStatus,
+} from './store';
 
-/** Providers Wick collects from. One, for now — see docs/decisions/. */
+/** Providers Wick collects from. One, for now — see the decision records. */
 export const providers: UsageProvider[] = [claudeProvider];
 
 /** Why a poll is happening. Only `invalidation` is rate-limited. */
-export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install';
+export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install' | 'reconcile' | 'tab';
 
 /**
  * Shortest gap between two polls triggered by an observed account change.
@@ -34,8 +43,48 @@ export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install';
  */
 const INVALIDATION_GAP_MS = 5_000;
 
+/**
+ * How long to wait after a completion before asking the endpoint about it.
+ *
+ * A `message_limit` event is the server's own number, but it is the number as
+ * of the moment the stream started; claude.ai's accounting settles a beat
+ * later. Polling immediately reads the pre-send figure and looks like the send
+ * did not count. This delay is a placeholder until it is measured against live
+ * traffic — see the protocol-verification notes, step 8, which exists to replace
+ * this constant with an observation.
+ */
+export const RECONCILE_DELAY_MS = 4_000;
+
 /** Module-level, so it is forgotten on worker teardown. Losing it costs one poll. */
 let lastPollAt = 0;
+
+/**
+ * The poll currently running, if any.
+ *
+ * Every trigger — the alarm, the popup opening, a plan change, a completion
+ * settling — can fire while another poll is still awaiting a response. Without
+ * this they stack: several requests for one answer, and several writes racing
+ * to record it. Callers all await the same poll instead.
+ */
+let inFlight: Promise<void> | null = null;
+
+/** A reconcile already scheduled. One pending refresh is enough for any burst. */
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Forget everything the collector only holds in memory.
+ *
+ * In the browser this happens by itself: MV3 tears the worker down when idle
+ * and every one of these is rebuilt on the next event. Tests share one module
+ * instance across cases, so they need to ask.
+ */
+export function resetCollectorMemory(): void {
+  if (reconcileTimer !== null) clearTimeout(reconcileTimer);
+  reconcileTimer = null;
+  inFlight = null;
+  lastPollAt = 0;
+  counted.clear();
+}
 
 /** Register every listener the collector needs. Called once, synchronously. */
 export function initCollector(): void {
@@ -46,6 +95,11 @@ export function initCollector(): void {
 
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   watchInvalidations();
+
+  // A worker that has just started knows nothing, and the first alarm is a
+  // whole cadence away. Both of these fire before any user action.
+  chrome.runtime.onInstalled.addListener(() => void poll('install'));
+  chrome.runtime.onStartup?.addListener(() => void poll('install'));
 }
 
 /**
@@ -54,30 +108,61 @@ export function initCollector(): void {
  * Resolves whatever happens. A provider that throws, a shape that changed, a
  * network that is not there — each becomes an `error` status and the loop
  * carries on to the next provider.
+ *
+ * Concurrent calls share one poll: the second caller awaits the first rather
+ * than starting a second round of requests.
  */
 export async function poll(reason: PollReason): Promise<void> {
+  if (inFlight !== null) return inFlight;
+
   const now = Date.now();
   if (reason === 'invalidation' && now - lastPollAt < INVALIDATION_GAP_MS) return;
   lastPollAt = now;
 
-  for (const provider of providers) {
-    await pollProvider(provider);
-  }
+  inFlight = (async () => {
+    for (const provider of providers) {
+      await pollProvider(provider);
+    }
+  })().finally(() => {
+    inFlight = null;
+  });
+
+  return inFlight;
+}
+
+/**
+ * Ask the authoritative endpoint about a send that just happened.
+ *
+ * One timer, however many events arrive: a completion that produces a
+ * `message_limit` event and then a refusal is one send, and it deserves one
+ * fetch. The timer is deliberately short — the worker stays alive for a few
+ * seconds after handling a message, and if it is torn down anyway the poll
+ * alarm is at most a minute behind, because a tab is open by definition when a
+ * completion just happened.
+ */
+export function scheduleReconcile(delay = RECONCILE_DELAY_MS): void {
+  if (reconcileTimer !== null) return;
+  reconcileTimer = setTimeout(() => {
+    reconcileTimer = null;
+    void poll('reconcile');
+  }, delay);
 }
 
 async function pollProvider(provider: UsageProvider): Promise<void> {
   try {
     const accountId = await provider.resolveAccountId();
     if (accountId === null) {
-      // No cookie. Not an error, and not something to show a stale number for.
-      await writeStatus({ kind: 'signed-out' });
+      // No cookie. Not an error — but the numbers on screen belong to a session
+      // that is over, and leaving them there is a lie the user cannot see.
+      await signedOut();
       return;
     }
 
+    await writeAccountId(accountId);
     const result = await usageResult(provider, accountId);
 
     if (result.kind === 'signed-out') {
-      await writeStatus({ kind: 'signed-out' });
+      await signedOut();
       return;
     }
 
@@ -87,13 +172,11 @@ async function pollProvider(provider: UsageProvider): Promise<void> {
     }
 
     const at = Date.now();
-    await writeSnapshot({
-      providerId: provider.id,
-      windows: result.windows,
-      fetchedAt: at,
-      source: 'usage',
-    });
-    await recordUtilizations(result.windows, at);
+    const stored = await writeSnapshot(
+      { providerId: provider.id, accountId, windows: result.windows, source: 'usage', at },
+      at,
+    );
+    await recordAccepted(stored, at, accountId);
     await writeStatus({ kind: 'ok', at });
   } catch (error) {
     await writeStatus({
@@ -116,14 +199,48 @@ async function usageResult(provider: UsageProvider, accountId: string): Promise<
   return { kind: 'ok', windows: await provider.fetchUsage(accountId), path: '' };
 }
 
-/** Fold the numbers into today's rollup. Windows without one are simply absent. */
-async function recordUtilizations(windows: LimitWindow[], at: number): Promise<void> {
+/**
+ * Sign-out: say so, and stop showing the departed session's numbers.
+ *
+ * The snapshot goes because it describes a session that no longer exists. The
+ * account tag stays, and deliberately: it is the answer to "whose record is
+ * this", and signing out of claude.ai does not change whose record it is.
+ * Clearing it would make the panel's own history vanish along with the numbers,
+ * which is a much bigger claim than "you are signed out". The next poll after a
+ * different account signs in overwrites it.
+ *
+ * History survives for the same reason — it is the user's own record, and it is
+ * append-only.
+ */
+async function signedOut(): Promise<void> {
+  await writeStatus({ kind: 'signed-out' });
+  await clearSnapshot();
+}
+
+/**
+ * Fold the numbers Wick actually accepted into today's rollup.
+ *
+ * Driven from the merged snapshot rather than from the reading, because the
+ * merge is where precedence is decided: a window the store refused as stale
+ * must not be folded into the peak, or an out-of-order reading outlives the
+ * snapshot it was rejected from. Windows without a number are simply absent —
+ * a missing percentage is not a zero.
+ */
+async function recordAccepted(
+  stored: Snapshot | null,
+  at: number,
+  accountId: string | null,
+): Promise<void> {
+  if (stored === null) return;
+
   const utilizations: Record<string, number> = {};
-  for (const window of windows) {
+  for (const window of stored.windows) {
+    if (window.observedAt !== at) continue;
     if (window.utilization !== null) utilizations[window.key] = window.utilization;
   }
+
   if (Object.keys(utilizations).length === 0) return;
-  await recordReading(utilizations, at);
+  await recordReading(utilizations, at, accountId);
 }
 
 /* ---- Messages ------------------------------------------------------------ */
@@ -141,6 +258,7 @@ const HANDLED = [
   'wick:stream-limits',
   'wick:message-sent',
   'wick:refresh',
+  'wick:tab-open',
   'wick:get-state',
 ] as const;
 
@@ -179,15 +297,22 @@ export function handleRuntimeMessage(
 async function respond(message: CollectorMessage): Promise<RuntimeResponse> {
   switch (message.type) {
     case 'wick:stream-limits':
-      await acceptStreamLimits(message.windows, message.at);
+      await acceptStreamLimits(message.windows, message.at, message.source);
       return { ok: true };
 
     case 'wick:message-sent':
-      await recordMessage(message.at);
+      await countMessage(message.id, message.at);
       return { ok: true };
 
     case 'wick:refresh':
       await poll('refresh');
+      return { ok: true };
+
+    case 'wick:tab-open':
+      // Cadence first: the poll that follows is one reading, and the cadence is
+      // every reading after it.
+      await syncPollCadence();
+      await poll('tab');
       return { ok: true };
 
     case 'wick:get-state':
@@ -196,26 +321,63 @@ async function respond(message: CollectorMessage): Promise<RuntimeResponse> {
 }
 
 /**
- * Write an optimistic reading from the stream.
+ * How many recently counted completions to remember.
  *
- * Precedence lives in the store, so this only has to respect its answer: when
- * the write is refused, an authoritative fetch already covered this moment and
- * the rollup must not be touched either. Folding a lower-trust number into the
- * peak after a fetch has spoken would let the optimistic reading outlive the
- * snapshot it was refused from.
+ * De-duplication only has to survive the moment: the ids it guards against are
+ * two observations of one in-flight request, seconds apart at most. A few dozen
+ * is far more than any burst, and the set dies with the worker, which is
+ * exactly the lifetime the problem has.
  */
-async function acceptStreamLimits(windows: LimitWindow[], at: number): Promise<void> {
-  const written = await writeSnapshot({
-    // The message carries no provider tag because only one provider has a
-    // MAIN-world bridge. A second one means a field here, not a guess.
-    providerId: claudeProvider.id,
-    windows,
-    fetchedAt: at,
-    source: 'stream',
-  });
+const COUNTED_LIMIT = 64;
 
-  if (!written) return;
-  await recordUtilizations(windows, at);
+const counted = new Set<string>();
+
+/** Count one accepted completion, unless this exact request was already counted. */
+async function countMessage(id: string, at: number): Promise<void> {
+  if (counted.has(id)) return;
+
+  counted.add(id);
+  if (counted.size > COUNTED_LIMIT) {
+    const oldest = counted.values().next().value;
+    if (oldest !== undefined) counted.delete(oldest);
+  }
+
+  await recordMessage(at, await readAccountId());
+}
+
+/**
+ * Write an optimistic reading seen on the wire.
+ *
+ * Two things happen, in this order and for different reasons: the reading goes
+ * in immediately, because it is what the user just did and they should see it
+ * now; and an authoritative fetch is scheduled, because the reading is the
+ * server's number from a beat earlier and only the endpoint can confirm where
+ * the account actually landed.
+ *
+ * Precedence lives in the store, so this only has to respect its answer.
+ */
+async function acceptStreamLimits(
+  windows: LimitWindow[],
+  at: number,
+  source: SnapshotSource,
+): Promise<void> {
+  const accountId = await readAccountId();
+
+  const stored = await writeSnapshot(
+    {
+      // The message carries no provider tag because only one provider has a
+      // MAIN-world bridge. A second one means a field here, not a guess.
+      providerId: claudeProvider.id,
+      accountId,
+      windows,
+      source,
+      at,
+    },
+    at,
+  );
+
+  await recordAccepted(stored, at, accountId);
+  scheduleReconcile();
 }
 
 /* ---- Cache invalidation -------------------------------------------------- */

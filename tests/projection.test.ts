@@ -46,6 +46,7 @@ const weekly: LimitWindow = {
   status: 'ok',
   resetsAt: NOW + 3 * DAY_MS,
   active: true,
+  role: 'weekly',
 };
 
 /** Seven complete days climbing 10 points a day, plus a partial today. */

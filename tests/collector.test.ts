@@ -12,9 +12,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installChromeMock, uninstallChromeMock, type FakeChrome } from './helpers/chrome-mock';
 import type { RuntimeResponse } from '~/core/messages';
 import type { DailyRollup, Snapshot } from '~/core/types';
-import { POLL_ALARM, IDLE_INTERVAL_MINUTES } from '~/background/alarms';
-import { handleRuntimeMessage, initCollector, poll } from '~/background/collector';
-import { KEYS } from '~/background/store';
+import { ACTIVE_INTERVAL_MINUTES, POLL_ALARM, IDLE_INTERVAL_MINUTES } from '~/background/alarms';
+import {
+  RECONCILE_DELAY_MS,
+  handleRuntimeMessage,
+  initCollector,
+  poll,
+  resetCollectorMemory,
+} from '~/background/collector';
+import { KEYS, readState } from '~/background/store';
 import { resetUsagePathMemo } from '~/providers/claude';
 
 let fake: FakeChrome;
@@ -71,6 +77,9 @@ beforeEach(() => {
   fake = installChromeMock();
   fake.reset();
   resetUsagePathMemo();
+  // The worker forgets these on teardown; one module instance shared across
+  // cases does not.
+  resetCollectorMemory();
   now += 60 * 60 * 1000;
   vi.useFakeTimers();
   vi.setSystemTime(now);
@@ -101,12 +110,22 @@ describe('poll', () => {
 
     expect(storedSnapshot()).toEqual({
       providerId: 'claude',
+      accountId: 'org-42',
       source: 'usage',
       fetchedAt: now,
-      windows: [expect.objectContaining({ key: '5h', utilization: 82, status: 'ok' })],
+      windows: [
+        expect.objectContaining({
+          key: '5h',
+          utilization: 82,
+          status: 'ok',
+          // Stamped by the store as it merges, not by the provider.
+          source: 'usage',
+          observedAt: now,
+        }),
+      ],
     });
     expect(storedHistory()).toEqual([
-      expect.objectContaining({ windows: { '5h': 82 }, messageCount: 0 }),
+      expect.objectContaining({ windows: { '5h': 82 }, messageCount: 0, accountId: 'org-42' }),
     ]);
     expect(fake.store.get(KEYS.status)).toEqual({ kind: 'ok', at: now });
   });
@@ -237,7 +256,7 @@ describe('runtime messages', () => {
   });
 
   it('counts a message into today’s rollup', async () => {
-    await ask({ type: 'wick:message-sent', at: now });
+    await ask({ type: 'wick:message-sent', at: now, id: 'req-1' });
 
     expect(storedHistory()[0]?.messageCount).toBe(1);
     expect(storedHistory()[0]?.hourlyMessages[new Date(now).getHours()]).toBe(1);
@@ -257,7 +276,7 @@ describe('runtime messages', () => {
       { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true },
     ];
 
-    await ask({ type: 'wick:stream-limits', windows, at: now });
+    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
 
     expect(storedSnapshot()).toMatchObject({ source: 'stream', fetchedAt: now });
     expect(storedHistory()[0]?.windows).toEqual({ '5h': 51 });
@@ -271,12 +290,140 @@ describe('runtime messages', () => {
     const stale = [
       { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 99, status: 'ok', resetsAt: null, active: true },
     ];
-    await ask({ type: 'wick:stream-limits', windows: stale, at: now - 1_000 });
+    await ask({ type: 'wick:stream-limits', windows: stale, at: now - 1_000, source: 'stream' });
 
     expect(storedSnapshot()).toMatchObject({ source: 'usage', fetchedAt: now });
     expect(storedSnapshot()?.windows[0]?.utilization).toBe(60);
     // And the refused reading must not sneak into the rollup either, where the
     // peak would preserve it long after the snapshot rejected it.
     expect(storedHistory()[0]?.windows).toEqual({ '5h': 60 });
+  });
+});
+
+describe('reconciliation', () => {
+  /**
+   * A `message_limit` event is the server's own number, but it is the number as
+   * of the moment the send started. Wick shows it immediately because it is
+   * what the user just did — and then has to go and ask, or the optimistic
+   * reading stands until the next scheduled poll.
+   */
+  it('asks the endpoint about a send it saw on the stream', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(70) : new Response('', { status: 404 })));
+
+    const windows = [
+      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true, role: 'session' },
+    ];
+    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
+
+    // Before the delay: the optimistic number, and no request.
+    expect(storedSnapshot()?.source).toBe('stream');
+    expect(requested).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(RECONCILE_DELAY_MS + 10);
+
+    expect(storedSnapshot()?.source).toBe('usage');
+    expect(storedSnapshot()?.windows[0]?.utilization).toBe(70);
+  });
+
+  it('schedules one fetch however many events a single send produces', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(70) : new Response('', { status: 404 })));
+
+    const windows = [
+      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true, role: 'session' },
+    ];
+    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
+    await ask({ type: 'wick:stream-limits', windows, at: now + 1, source: 'rejection' });
+    await ask({ type: 'wick:stream-limits', windows, at: now + 2, source: 'stream' });
+
+    await vi.advanceTimersByTimeAsync(RECONCILE_DELAY_MS + 10);
+
+    // One send, one reconciliation. Three would be three requests for one fact.
+    expect(requested.filter((url) => url.endsWith('/usage'))).toHaveLength(1);
+  });
+
+  it('records a refusal as a refusal, not as a stream reading', async () => {
+    const windows = [
+      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 100, status: 'exceeded', resetsAt: null, active: true, role: 'session' },
+    ];
+
+    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'rejection' });
+
+    expect(storedSnapshot()?.windows[0]?.source).toBe('rejection');
+  });
+});
+
+describe('coalescing', () => {
+  it('answers concurrent triggers with one round of requests', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(30) : new Response('', { status: 404 })));
+
+    await Promise.all([poll('alarm'), poll('refresh'), poll('tab')]);
+
+    // Three triggers, one answer. Without this they stack: several requests for
+    // one number, and several writes racing to record it.
+    expect(requested.filter((url) => url.endsWith('/usage'))).toHaveLength(1);
+  });
+});
+
+describe('message counting', () => {
+  it('counts the same accepted completion once', async () => {
+    await ask({ type: 'wick:message-sent', at: now, id: 'req-7' });
+    await ask({ type: 'wick:message-sent', at: now, id: 'req-7' });
+
+    expect(storedHistory()[0]?.messageCount).toBe(1);
+  });
+
+  it('counts two different sends twice', async () => {
+    await ask({ type: 'wick:message-sent', at: now, id: 'req-1' });
+    await ask({ type: 'wick:message-sent', at: now, id: 'req-2' });
+
+    expect(storedHistory()[0]?.messageCount).toBe(2);
+  });
+});
+
+describe('signing out', () => {
+  it('stops showing the departed session’s numbers, and keeps the record', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(55) : new Response('', { status: 404 })));
+    await poll('alarm');
+    expect(storedSnapshot()).toBeDefined();
+
+    fake.cookies.delete('lastActiveOrg');
+    await poll('alarm');
+
+    expect(fake.store.get(KEYS.status)).toEqual({ kind: 'signed-out' });
+    expect(storedSnapshot()).toBeUndefined();
+    // History is the user's own record. Signing out is not a request to delete
+    // it — nor to hide it, so the account tag stays and the panel can still
+    // find the record it belongs to.
+    expect(storedHistory()).toHaveLength(1);
+    expect((await readState()).history).toHaveLength(1);
+  });
+
+  it('clears the snapshot when the endpoint refuses the credentials', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(55) : new Response('', { status: 404 })));
+    await poll('alarm');
+
+    stubFetch(() => new Response('', { status: 401 }));
+    await poll('alarm');
+
+    expect(storedSnapshot()).toBeUndefined();
+  });
+});
+
+describe('a provider tab appearing', () => {
+  it('moves to the attentive cadence and reads immediately', async () => {
+    fake.cookies.set('lastActiveOrg', 'org-42');
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(20) : new Response('', { status: 404 })));
+    initCollector();
+    fake.tabs.push({ url: 'https://claude.ai/chat/1' });
+
+    await ask({ type: 'wick:tab-open' });
+
+    expect(fake.alarms.get(POLL_ALARM)?.periodInMinutes).toBe(ACTIVE_INTERVAL_MINUTES);
+    expect(storedSnapshot()?.windows[0]?.utilization).toBe(20);
   });
 });

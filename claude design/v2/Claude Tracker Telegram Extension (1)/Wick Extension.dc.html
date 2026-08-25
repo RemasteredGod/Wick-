@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+  body { margin:0; background:#141312; }
+  * { box-sizing:border-box; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#3a3835; border-radius:8px; }
+  a { color:#c9c4bb; }
+  a:hover { color:#f2efe9; }
+  @keyframes relaypulse { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:#141312;color:#f2efe9;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;padding:56px 64px 120px;display:flex;flex-direction:column;gap:56px">
+
+  <div style="display:flex;flex-direction:column;gap:14px;max-width:720px">
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8a857d">Browser extension · open source</div>
+    <div style="font-size:40px;line-height:1.05;letter-spacing:-.02em">Wick — usage tracking that lives in the sidebar</div>
+    <div style="font-size:15px;line-height:1.6;color:#a4a09a;text-wrap:pretty;max-width:620px">Reads your plan usage, projects when you'll run out, and relays one message to your Telegram bot. No server, no account — the bot token stays in local extension storage.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:6px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#a4a09a;border:1px solid #35332f;border-radius:999px;padding:6px 12px">MIT</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#a4a09a;border:1px solid #35332f;border-radius:999px;padding:6px 12px">Manifest V3</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#a4a09a;border:1px solid #35332f;border-radius:999px;padding:6px 12px">~0 deps</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#a4a09a;border:1px solid #35332f;border-radius:999px;padding:6px 12px">Telegram Bot API</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;margin-top:18px;border:1px solid #262421;border-radius:12px;padding:14px 18px;max-width:520px">
+      <div style="display:flex;align-items:flex-end;gap:14px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:5px;height:5px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:7px;height:26px;border-radius:4px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:86%;background:{{ accent }}"></div></div></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:5px;height:5px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:7px;height:26px;border-radius:4px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:48%;background:{{ accent }}"></div></div></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:5px;height:5px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:7px;height:26px;border-radius:4px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:14%;background:#d99a2b"></div></div></div>
+      </div>
+      <div style="font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">The mark <em style="color:#c9c4bb;font-style:normal">is</em> the gauge — fill height is quota remaining, so the favicon and the sidebar icon read at a glance as the wick burns down.</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">01 · In the sidebar</div>
+      <div style="width:300px;background:#1c1b19;border:1px solid #2c2a27;border-radius:14px;padding:14px 0 0;display:flex;flex-direction:column;gap:2px;overflow:hidden">
+        <div style="display:flex;flex-direction:column;gap:2px;padding:0 10px 10px;opacity:.4">
+          <div style="height:30px;border-radius:8px;background:#2a2825"></div>
+          <div style="height:30px;border-radius:8px"></div>
+          <div style="height:30px;border-radius:8px"></div>
+        </div>
+
+        <div style="margin:0 10px;border-radius:10px;background:#212020;border:1px solid #302e2b;padding:11px 12px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:7px">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:4px;height:4px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:5px;height:13px;border-radius:3px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:18%;background:{{ accent }}"></div></div></div>
+              <div style="font-size:12px;letter-spacing:.02em;color:#e8e4dd">Wick</div>
+            </div>
+            <div onClick="{{ toggleExpanded }}" style="font-size:11px;color:#8a857d;cursor:pointer;padding:2px 4px" style-hover="color:#e8e4dd">{{ chevron }}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8a857d"><span>Session</span><span style="font-family:ui-monospace,Menlo,monospace;color:#c9c4bb">68%</span></div>
+            <div style="height:3px;border-radius:3px;background:#332f2b;overflow:hidden"><div style="width:68%;height:100%;background:{{ accent }}"></div></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8a857d"><span>Weekly</span><span style="font-family:ui-monospace,Menlo,monospace;color:#d99a2b">82%</span></div>
+            <div style="height:3px;border-radius:3px;background:#332f2b;overflow:hidden"><div style="width:82%;height:100%;background:#d99a2b"></div></div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:2px;padding:12px 10px 16px;opacity:.4">
+          <div style="height:12px;width:60%;border-radius:4px;background:#262421;margin:6px 4px"></div>
+          <div style="height:26px;border-radius:8px;background:#232120"></div>
+          <div style="height:26px;border-radius:8px"></div>
+          <div style="height:26px;border-radius:8px"></div>
+          <div style="height:26px;border-radius:8px"></div>
+        </div>
+      </div>
+      <div style="width:300px;font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">Collapsed by default: two bars, no chrome. It docks above Projects so it never fights the chat list for attention.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">02 · Expanded panel</div>
+      <div style="width:372px;background:#1e1d1b;border:1px solid #302e2b;border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid #2b2926">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:26px;height:26px;border-radius:8px;background:#252321;display:flex;align-items:center;justify-content:center"><div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:4px;height:4px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:5px;height:14px;border-radius:3px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:18%;background:{{ accent }}"></div></div></div></div>
+            <div style="font-size:15px;letter-spacing:.01em">Wick</div>
+          </div>
+          <div style="font-size:11px;font-family:ui-monospace,Menlo,monospace;color:#b9b4ab;border:1px solid #3a3833;border-radius:999px;padding:4px 10px">Max 5×</div>
+        </div>
+
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <div style="font-size:13.5px;color:#e8e4dd">Session · 5 hr</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:13.5px">68%</div>
+            </div>
+            <div style="height:5px;border-radius:5px;background:#332f2b;overflow:hidden"><div style="width:68%;height:100%;background:{{ accent }}"></div></div>
+            <div style="font-size:11.5px;color:#8a857d">Resets in 1 hr 42 min</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <div style="font-size:13.5px;color:#e8e4dd">Weekly</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:13.5px;color:#d99a2b">82%</div>
+            </div>
+            <div style="height:5px;border-radius:5px;background:#332f2b;overflow:hidden"><div style="width:82%;height:100%;background:#d99a2b"></div></div>
+            <div style="font-size:11.5px;color:#8a857d">Resets Thursday, 09:00</div>
+          </div>
+
+          <div style="border:1px solid #4a3a18;background:#2a2113;border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.5;color:#e0b256;text-wrap:pretty">At your current pace you run out <strong style="color:#f2c877;font-weight:600">Tuesday evening</strong> — two days before reset.</div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+            <div style="border:1px solid #2f2d2a;border-radius:10px;padding:10px 11px;display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:10.5px;color:#8a857d;letter-spacing:.03em">Today</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:19px">41</div>
+            </div>
+            <div style="border:1px solid #2f2d2a;border-radius:10px;padding:10px 11px;display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:10.5px;color:#8a857d;letter-spacing:.03em">Avg / day</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:19px">28</div>
+            </div>
+            <div style="border:1px solid #2f2d2a;border-radius:10px;padding:10px 11px;display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:10.5px;color:#8a857d;letter-spacing:.03em">Peak hr</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:19px">14:00</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:6px;height:54px">
+              <div style="flex:1;height:38%;border-radius:4px;background:#33312e"></div>
+              <div style="flex:1;height:52%;border-radius:4px;background:#33312e"></div>
+              <div style="flex:1;height:24%;border-radius:4px;background:#33312e"></div>
+              <div style="flex:1;height:66%;border-radius:4px;background:#33312e"></div>
+              <div style="flex:1;height:44%;border-radius:4px;background:#33312e"></div>
+              <div style="flex:1;height:74%;border-radius:4px;background:#3c3a36"></div>
+              <div style="flex:1;height:100%;border-radius:4px;background:{{ accent }}"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:#6f6a63">
+              <span>FRI</span><span>SAT</span><span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>TODAY</span>
+            </div>
+          </div>
+
+          <div style="height:1px;background:#2b2926"></div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:13px;color:#e8e4dd">Telegram alerts</div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:ui-monospace,Menlo,monospace;color:#6dcf8e"><span style="width:5px;height:5px;border-radius:50%;background:#6dcf8e"></span>Connected</div>
+            </div>
+            <div style="font-size:11.5px;line-height:1.5;color:#8a857d">Pings @jayant at 80% weekly and on reset.</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;padding:14px 18px;border-top:1px solid #2b2926">
+          <div style="flex:1;text-align:center;border:1px solid #3a3833;border-radius:9px;padding:9px;font-size:13px;color:#e8e4dd;cursor:pointer" style-hover="background:#272522">View history</div>
+          <div onClick="{{ openSettings }}" style="width:38px;display:flex;align-items:center;justify-content:center;border:1px solid #3a3833;border-radius:9px;cursor:pointer;font-size:13px;color:#b9b4ab" style-hover="background:#272522">⚙</div>
+        </div>
+      </div>
+      <div style="width:372px;font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">One forecast sentence is the whole product. Everything else is evidence for it.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">03 · Settings</div>
+      <div style="width:400px;background:#1e1d1b;border:1px solid #302e2b;border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid #2b2926">
+          <div style="font-size:14px">Settings</div>
+          <div style="font-size:15px;color:#8a857d;cursor:pointer">×</div>
+        </div>
+        <div style="padding:18px;display:flex;flex-direction:column;gap:20px">
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Telegram</div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <input type="text" placeholder="Bot token from @BotFather" style="width:100%;background:#171614;border:1px solid #33312d;border-radius:9px;padding:10px 12px;font-size:12.5px;color:#e8e4dd;font-family:ui-monospace,Menlo,monospace;outline:none" style-focus="border-color:#4a4741">
+              <div style="display:flex;gap:7px">
+                <input type="text" placeholder="Chat ID" style="flex:1;background:#171614;border:1px solid #33312d;border-radius:9px;padding:10px 12px;font-size:12.5px;color:#e8e4dd;font-family:ui-monospace,Menlo,monospace;outline:none" style-focus="border-color:#4a4741">
+                <div style="border:1px solid #3a3833;border-radius:9px;padding:10px 14px;font-size:12.5px;color:#e8e4dd;cursor:pointer;white-space:nowrap" style-hover="background:#272522">Send test</div>
+              </div>
+              <div style="font-size:11px;color:#6f6a63;line-height:1.5">Stored in <span style="font-family:ui-monospace,Menlo,monospace">chrome.storage.local</span> only. Never leaves your machine except to api.telegram.org.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Alert me at</div>
+            <div style="display:flex;gap:7px">
+              <sc-for list="{{ thresholds }}" as="t" hint-placeholder-count="4">
+                <div onClick="{{ t.pick }}" style="flex:1;text-align:center;border:1px solid #33312d;border-radius:9px;padding:9px 0;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;cursor:pointer;background:{{ t.bg }};color:{{ t.fg }};border-color:{{ t.bc }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:2px">
+              <div style="font-size:12.5px;color:#c9c4bb">Also ping on session reset</div>
+              <div onClick="{{ toggleReset }}" style="width:34px;height:19px;border-radius:999px;padding:2px;cursor:pointer;display:flex;background:{{ resetTrackBg }};justify-content:{{ resetAlign }};transition:all .18s ease">
+                <div style="width:15px;height:15px;border-radius:50%;background:#f2efe9"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Sidebar</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ displayOpts }}" as="d" hint-placeholder-count="3">
+                <div onClick="{{ d.toggle }}" style="display:flex;align-items:center;gap:9px;cursor:pointer">
+                  <div style="width:15px;height:15px;border-radius:4px;border:1px solid {{ d.bc }};background:{{ d.bg }};display:flex;align-items:center;justify-content:center;font-size:10px;color:#141312">{{ d.mark }}</div>
+                  <div style="font-size:12.5px;color:#c9c4bb">{{ d.label }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="height:1px;background:#2b2926"></div>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Project</div>
+            <div style="display:flex;gap:8px">
+              <a href="#" style="flex:1;text-align:center;text-decoration:none;border:1px solid #3a3833;border-radius:9px;padding:9px;font-size:12.5px" style-hover="background:#272522">Star on GitHub</a>
+              <a href="#" style="flex:1;text-align:center;text-decoration:none;border:1px solid #3a3833;border-radius:9px;padding:9px;font-size:12.5px" style-hover="background:#272522">Report an issue</a>
+            </div>
+            <a href="#" style="display:flex;align-items:center;justify-content:space-between;text-decoration:none;border:1px solid #3f3129;background:#241d19;border-radius:9px;padding:10px 13px" style-hover="background:#2b221d">
+              <span style="font-size:12.5px;color:#e6c3a8">Support on Ko-fi</span>
+              <span style="font-size:11px;font-family:ui-monospace,Menlo,monospace;color:#9c7a63">ko-fi.com/jayant</span>
+            </a>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #2b2926">
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#6f6a63">v0.1.0</div>
+          <div style="background:{{ accent }};color:#0d1218;border-radius:9px;padding:8px 18px;font-size:12.5px;cursor:pointer">Save</div>
+        </div>
+      </div>
+      <div style="width:400px;font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">Four groups, one screen, no tabs. Ko-fi sits under Project — an ask, not an ad.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">04 · What lands on Telegram</div>
+      <div style="width:340px;background:#17212b;border:1px solid #22303c;border-radius:16px;padding:18px 16px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:9px;padding-bottom:10px;border-bottom:1px solid #22303c">
+          <div style="width:28px;height:28px;border-radius:50%;background:#2b5278;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:ui-monospace,Menlo,monospace;color:#cfe3f5">W</div>
+          <div style="display:flex;flex-direction:column">
+            <div style="font-size:13px;color:#f0f4f8">Wick Bot</div>
+            <div style="font-size:10.5px;color:#6b8398">bot</div>
+          </div>
+        </div>
+        <div style="align-self:flex-start;max-width:270px;background:#212121;border-radius:12px 12px 12px 4px;padding:10px 13px;display:flex;flex-direction:column;gap:5px">
+          <div style="font-size:12.5px;color:#f0f4f8;line-height:1.5">Weekly usage <strong>80%</strong> — 4 days to reset.</div>
+          <div style="font-size:11.5px;color:#8fa7ba;line-height:1.5;font-family:ui-monospace,Menlo,monospace">pace 28/day · runs out Tue ~19:00</div>
+          <div style="align-self:flex-end;font-size:9.5px;color:#6b8398;font-family:ui-monospace,Menlo,monospace">14:02</div>
+        </div>
+        <div style="align-self:flex-start;max-width:270px;background:#212121;border-radius:12px 12px 12px 4px;padding:10px 13px;display:flex;flex-direction:column;gap:5px">
+          <div style="font-size:12.5px;color:#f0f4f8;line-height:1.5">Session window reset. <strong>0%</strong> used.</div>
+          <div style="align-self:flex-end;font-size:9.5px;color:#6b8398;font-family:ui-monospace,Menlo,monospace">19:00</div>
+        </div>
+        <div style="align-self:flex-start;max-width:270px;background:#212121;border-radius:12px 12px 12px 4px;padding:10px 13px;display:flex;flex-direction:column;gap:5px">
+          <div style="font-size:12.5px;color:#f0f4f8;line-height:1.5">Weekly reset. Last week: <strong>196</strong> messages, peak Wednesday.</div>
+          <div style="align-self:flex-end;font-size:9.5px;color:#6b8398;font-family:ui-monospace,Menlo,monospace">09:00</div>
+        </div>
+      </div>
+      <div style="width:340px;font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">Three message types, max one per event. A tracker that spams is a tracker you mute.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">05 · First run</div>
+      <div style="width:340px;background:#1e1d1b;border:1px solid #302e2b;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:18px">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="font-size:17px">Connect Telegram</div>
+          <div style="font-size:12.5px;color:#8a857d;line-height:1.5">Optional. Wick tracks fine without it.</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <sc-for list="{{ steps }}" as="s" hint-placeholder-count="3">
+            <div style="display:flex;gap:12px;align-items:flex-start">
+              <div style="width:20px;height:20px;flex:none;border-radius:50%;border:1px solid #3a3833;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:#a4a09a">{{ s.n }}</div>
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <div style="font-size:13px;color:#e8e4dd">{{ s.title }}</div>
+                <div style="font-size:11.5px;color:#8a857d;line-height:1.5">{{ s.body }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;text-align:center;background:{{ accent }};color:#0d1218;border-radius:9px;padding:10px;font-size:13px;cursor:pointer">Connect</div>
+          <div style="text-align:center;border:1px solid #3a3833;border-radius:9px;padding:10px 16px;font-size:13px;color:#a4a09a;cursor:pointer" style-hover="background:#272522">Skip</div>
+        </div>
+      </div>
+      <div style="width:340px;font-size:12.5px;line-height:1.55;color:#8a857d;text-wrap:pretty">Skippable in one tap — the extension is useful before any integration exists.</div>
+    </div>
+
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;border-top:1px solid #262421;padding-top:36px">
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f6a63">Principles for v0.1</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:14px;color:#e8e4dd">Borrow, never brand</div>
+        <div style="font-size:12.5px;line-height:1.6;color:#8a857d;text-wrap:pretty">Inherit the host page's spacing, radii and text colors from CSS variables. No logo, no colored banner in the sidebar.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:14px;color:#e8e4dd">One surface, one job</div>
+        <div style="font-size:12.5px;line-height:1.6;color:#8a857d;text-wrap:pretty">Sidebar shows state. Settings holds config. Telegram carries events. Nothing appears in two places.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:14px;color:#e8e4dd">Fail quiet</div>
+        <div style="font-size:12.5px;line-height:1.6;color:#8a857d;text-wrap:pretty">If the DOM shape changes or the bot 401s, degrade to a dim dot and a tooltip — never break the page you're guesting on.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:14px;color:#e8e4dd">Contributor-shaped</div>
+        <div style="font-size:12.5px;line-height:1.6;color:#8a857d;text-wrap:pretty">Selectors in one file, notification channels behind a two-method interface — so "add Discord" is a 40-line PR.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#4d8ff0&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#4d8ff0&quot;,&quot;#c96442&quot;,&quot;#6dcf8e&quot;,&quot;#b78be0&quot;]}}">
+class Component extends DCLogic {
+  state = { expanded: true, threshold: 80, onReset: true, display: { s: true, w: true, f: true, e: false }, settingsOpen: true };
+  renderVals() {
+    const accent = this.props.accent ?? '#4d8ff0';
+    const mk = (v) => ({
+      label: v + '%', pick: () => this.setState({ threshold: v }),
+      bg: this.state.threshold === v ? accent : 'transparent',
+      fg: this.state.threshold === v ? '#0d1218' : '#c9c4bb',
+      bc: this.state.threshold === v ? accent : '#33312d'
+    });
+    const dOpt = (key, label) => ({
+      label, toggle: () => this.setState(s => ({ display: { ...s.display, [key]: !s.display[key] } })),
+      mark: this.state.display[key] ? '✓' : '',
+      bg: this.state.display[key] ? accent : 'transparent',
+      bc: this.state.display[key] ? accent : '#4a4741'
+    });
+    return {
+      accent,
+      chevron: this.state.expanded ? '▾' : '▸',
+      toggleExpanded: () => this.setState(s => ({ expanded: !s.expanded })),
+      openSettings: () => this.setState({ settingsOpen: true }),
+      thresholds: [50, 80, 90, 95].map(mk),
+      toggleReset: () => this.setState(s => ({ onReset: !s.onReset })),
+      resetTrackBg: this.state.onReset ? accent : '#3a3833',
+      resetAlign: this.state.onReset ? 'flex-end' : 'flex-start',
+      displayOpts: [dOpt('s', 'Session bar'), dOpt('w', 'Weekly bar'), dOpt('f', 'Pace forecast'), dOpt('e', '7-day sparkline')],
+      steps: [
+        { n: '1', title: 'Message @BotFather', body: 'Send /newbot, copy the token it hands back.' },
+        { n: '2', title: 'Paste the token', body: 'Wick resolves your chat ID from your first reply.' },
+        { n: '3', title: 'Say /start to your bot', body: 'Test ping arrives in a second or two.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

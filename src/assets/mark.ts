@@ -8,7 +8,7 @@
  * the injected sidebar card, and the toolbar renderer all draw the same shape
  * from one definition rather than three approximations of it.
  *
- * Provenance and exact measurements: docs/design.md.
+ * Provenance and exact measurements: the design notes.
  *
  * **The fill is remaining quota, not consumption.** The archive shows Session
  * 68% and Weekly 82% used with the mark at 18% — that is `100 − max(used)`, the
@@ -57,7 +57,7 @@ const HALF_DIAGONAL = Math.SQRT2 / 2;
  * it will be conspicuous.
  *
  * Reproduced faithfully rather than corrected — redrawing the mark is not a
- * decision to make unilaterally. Flagged in docs/design.md.
+ * decision to make unilaterally. Flagged in the design notes.
  */
 export const FLAME_ROTATION_DEGREES = 45;
 
@@ -200,7 +200,7 @@ export function fillRect(
  * gives it two solid columns to sit in.
  *
  * Binding only at 16px; at 32 and 48 the faithful width is already wider.
- * See docs/decisions/0004-mark-at-16px.md.
+ * See ADR 0004 (the mark at 16px).
  */
 export const MIN_BODY_DEVICE_PIXELS = 4;
 

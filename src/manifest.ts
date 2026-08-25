@@ -13,15 +13,19 @@ const TARGET: 'chrome' | 'firefox' = 'chrome';
 const CLAUDE_MATCH = 'https://claude.ai/*';
 
 /**
- * The Telegram relay's origin, as a match pattern.
+ * The Telegram Bot API origin, as a match pattern.
  *
- * Spelled out rather than imported from `src/background/relay.ts`: this file is
- * evaluated by Vite's config loader, which does not resolve the `~` alias that
- * the background modules import through. It must stay identical to
- * `RELAY_ORIGIN_PATTERN` there — a mismatch fails as an opaque network error,
- * not as a permission error.
+ * Spelled out rather than imported from `src/background/telegram.ts`: this file
+ * is evaluated by Vite's config loader, which does not resolve the `~` alias
+ * that the background modules import through. It must stay identical to
+ * `TELEGRAM_ORIGIN_PATTERN` there — a mismatch fails as an opaque network
+ * error, not as a permission error.
+ *
+ * Broader than the relay origin it replaced: this lets Wick talk to any bot,
+ * not one fixed host. That is inherent to per-user bot tokens (ADR 0009) and is
+ * a Web Store review point worth expecting.
  */
-const RELAY_MATCH = 'https://relay.wick.tools/*';
+const TELEGRAM_MATCH = 'https://api.telegram.org/*';
 
 export default defineManifest({
   manifest_version: 3,
@@ -51,35 +55,41 @@ export default defineManifest({
   // adds nothing to the install-time prompt, so a user who never sets up
   // Telegram is never asked for it and can revoke it in Chrome's own UI if they
   // do. Every relay call is blocked until it is granted, which is the intended
-  // default. See docs/decisions/0003-telegram-relay-design.md.
-  optional_host_permissions: [RELAY_MATCH],
+  // default. See ADR 0003 (relay design).
+  optional_host_permissions: [TELEGRAM_MATCH],
 
   action: {
     default_popup: 'src/popup/index.html',
     default_title: 'Wick',
   },
 
+  // Named `service-worker.ts`, not `index.ts`, and that is load-bearing: the
+  // bundler names output chunks after the entry's basename, so two entries
+  // called `index.ts` collide and one loader ends up importing the other's
+  // chunk. When that happened, the worker loaded the content script — no
+  // alarms, no collector, no icon, and no error to say so. See
+  // tests/manifest.test.ts.
   background:
     TARGET === 'chrome'
-      ? { service_worker: 'src/background/index.ts', type: 'module' }
-      : { scripts: ['src/background/index.ts'], type: 'module' },
+      ? { service_worker: 'src/background/service-worker.ts', type: 'module' }
+      : { scripts: ['src/background/service-worker.ts'], type: 'module' },
 
   content_scripts: [
+    {
+      matches: [CLAUDE_MATCH],
+      js: ['src/content/inject.ts'],
+      // Register through MV3 instead of appending a web-accessible `.ts` module.
+      // Chrome compiles this entry to JavaScript and executes it in the page's
+      // world without depending on the response MIME type of an extension URL.
+      world: 'MAIN',
+      run_at: 'document_start',
+    },
     {
       matches: [CLAUDE_MATCH],
       js: ['src/content/index.ts'],
       // The sidebar card mounts into a nav that React renders after first
       // paint, so the script waits for its anchor rather than racing it.
       run_at: 'document_idle',
-    },
-  ],
-
-  // The MAIN-world fetch wrapper. Reachable only from claude.ai — a page on any
-  // other origin cannot pull it in.
-  web_accessible_resources: [
-    {
-      resources: ['src/content/inject.ts'],
-      matches: [CLAUDE_MATCH],
     },
   ],
 });
