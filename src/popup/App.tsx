@@ -16,6 +16,7 @@ import {
   connectTelegram,
   disconnectTelegram,
   finishTelegram,
+  testTelegram,
   useWickState,
 } from './useWickState';
 
@@ -51,6 +52,7 @@ export function App() {
         onChange={update}
         onConnect={connectTelegram}
         onFinish={finishTelegram}
+        onTest={testTelegram}
         onDisconnect={disconnectTelegram}
         onClose={() => setSettingsOpen(false)}
         version={chrome.runtime.getManifest().version}

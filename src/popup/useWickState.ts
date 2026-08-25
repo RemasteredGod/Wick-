@@ -111,6 +111,19 @@ export async function finishTelegram(): Promise<ConnectOutcome> {
   return 'outcome' in reply ? reply.outcome : 'unavailable';
 }
 
+/**
+ * Send a test message.
+ *
+ * No permission request: this is only offered once connected, which means the
+ * grant was given during setup. Asking again would prompt for something the
+ * user has already agreed to.
+ */
+export async function testTelegram(): Promise<ConnectOutcome> {
+  const reply = await sendToWorker({ type: 'wick:telegram-test' });
+  if (reply === null || !reply.ok) return 'unavailable';
+  return 'outcome' in reply ? reply.outcome : 'unavailable';
+}
+
 /** Forget the token. Fire and forget; the settings write comes back through storage. */
 export function disconnectTelegram(): void {
   void sendToWorker({ type: 'wick:telegram-disconnect' });

@@ -35,6 +35,7 @@ export const KEYS = {
   status: 'wick:status',
   alerts: 'wick:alerts',
   account: 'wick:account',
+  inbox: 'wick:inbox',
 } as const;
 
 /**
@@ -358,4 +359,34 @@ function isRollup(value: unknown): value is DailyRollup {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Partial<DailyRollup>;
   return typeof v.date === 'string' && typeof v.windows === 'object' && v.windows !== null;
+}
+
+/* ---- The command inbox --------------------------------------------------- *
+ * Machine state, not user settings: an update offset is a bookmark into
+ * Telegram's queue and has no place on a screen. Kept out of `Settings` so it
+ * cannot be rendered, exported, or reasoned about as configuration.           */
+
+/**
+ * The Telegram update offset already answered.
+ *
+ * Zero means "everything Telegram is still holding", which is the right start
+ * for a fresh connection: the queue contains at most the messages this user
+ * sent their own bot while setting it up.
+ */
+export async function readInboxOffset(): Promise<number> {
+  try {
+    const stored = (await chrome.storage.local.get(KEYS.inbox))[KEYS.inbox] as unknown;
+    return typeof stored === 'number' && Number.isSafeInteger(stored) && stored >= 0 ? stored : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Record the offset. A failure here costs one repeated reply, not correctness. */
+export async function writeInboxOffset(offset: number): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [KEYS.inbox]: offset });
+  } catch {
+    // Storage refusing to write is not worth taking the drain down for.
+  }
 }

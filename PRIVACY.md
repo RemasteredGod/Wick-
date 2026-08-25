@@ -42,8 +42,11 @@ the token at any time in @BotFather, which stops it working everywhere, not just
 here. See
 [`docs/decisions/0009-per-user-bot-tokens.md`](docs/decisions/0009-per-user-bot-tokens.md).
 
-Wick reads Telegram once, during setup, to learn which chat to send to — you are
-never asked to look up a chat id. After that it only ever sends.
+Wick reads Telegram twice. Once during setup, to learn which chat to send to —
+you are never asked to look up a chat id. And once per polling tick, so the bot
+can answer `/weekly` and `/daily` without a server. **It only ever replies to
+the chat you connected**; a bot username is public, and a message from anyone
+else is read and discarded rather than answered.
 
 The Telegram origin is an optional Chrome host permission requested only from
 the Connect button. Declining or revoking it blocks alerts without affecting

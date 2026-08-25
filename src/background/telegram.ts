@@ -7,11 +7,11 @@
  * chat and only an operator can revoke it. A per-user bot leaks one person's own
  * alert history, and they revoke it themselves in @BotFather.
  *
- * **Outbound only.** Alerts go one way, so nothing here listens, polls, or holds
- * a connection open. The single exception is `discoverChat`, which reads
- * `getUpdates` exactly once to learn where to send — because asking a user to
- * find their own numeric chat id is the worst part of every bot integration and
- * there is no reason to reproduce it.
+ * **Almost entirely outbound.** Alerts go one way and nothing here holds a
+ * connection open. Two calls read: `discoverChat`, once, to learn where to send
+ * — because asking a user to find their own numeric chat id is the worst part
+ * of every bot integration — and `getUpdates`, on the polling alarm, so the bot
+ * can answer commands without a server. See background/inbox.ts.
  *
  * Every function returns a result rather than throwing. Telegram being down,
  * slow, or refusing must never break collection or the interface — the local
@@ -130,6 +130,47 @@ export async function discoverChat(botToken: string): Promise<TelegramResult<Cha
   }
 
   return binding === null ? { ok: false, failure: 'no-chat' } : { ok: true, value: binding };
+}
+
+/** One update, as much of it as Wick reads. */
+export interface TelegramUpdate {
+  update_id: number;
+  message?: { text?: unknown; chat?: { id?: unknown } };
+}
+
+/**
+ * Read what is waiting, for the command inbox.
+ *
+ * `timeout` is **0** — a plain request, not a long poll. Long polling means
+ * holding a connection open for thirty seconds, and an MV3 service worker is
+ * torn down when it goes idle; the alarm that woke this is not a place to wait.
+ * Wick asks, takes whatever is there, and lets the next tick get the rest.
+ *
+ * This is the only inbound call in the extension. See background/inbox.ts for
+ * why it exists at all, given alerts travel one way.
+ */
+export async function getUpdates(
+  botToken: string,
+  offset: number,
+): Promise<TelegramResult<TelegramUpdate[]>> {
+  const result = await call(botToken, 'getUpdates', {
+    offset,
+    timeout: 0,
+    allowed_updates: ['message'],
+    limit: 20,
+  });
+  if (!result.ok) return result;
+
+  const updates = Array.isArray(result.value) ? result.value : [];
+  return { ok: true, value: updates.filter(isUpdate) };
+}
+
+function isUpdate(value: unknown): value is TelegramUpdate {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { update_id?: unknown }).update_id === 'number'
+  );
 }
 
 /**

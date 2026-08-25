@@ -537,6 +537,13 @@ export function handleTelegramMessage(
     return true;
   }
 
+  if (message.type === 'wick:telegram-test') {
+    void sendTest()
+      .then((outcome) => sendResponse({ ok: true, outcome }))
+      .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
+    return true;
+  }
+
   if (message.type === 'wick:telegram-disconnect') {
     void disconnect()
       .then(() => sendResponse({ ok: true }))
@@ -605,6 +612,17 @@ async function finishConnect(): Promise<ConnectOutcome> {
   }
 
   return 'ok';
+}
+
+/**
+ * Send a test message.
+ *
+ * Deliberately just "hi". A test whose content is elaborate tests the composer
+ * as well as the connection, and when it fails the user cannot tell which broke.
+ */
+async function sendTest(): Promise<ConnectOutcome> {
+  const result = await send('hi');
+  return result.ok ? 'ok' : outcomeFor(result.failure);
 }
 
 /**

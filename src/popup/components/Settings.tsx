@@ -47,6 +47,8 @@ interface SettingsProps {
    * flow, after the user has messaged their bot.
    */
   onFinish?: () => Promise<ConnectOutcome>;
+  /** Send a test message, so the user sees something arrive. */
+  onTest?: () => Promise<ConnectOutcome>;
   /** Forget the token and chat locally. Nothing is revoked — see ADR 0009. */
   onDisconnect?: () => void;
   /** Leave the settings view. */
@@ -83,6 +85,7 @@ export function Settings({
   onChange,
   onConnect,
   onFinish,
+  onTest,
   onDisconnect,
   onClose,
   version,
@@ -90,6 +93,7 @@ export function Settings({
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   /**
    * Three states, not two.
@@ -114,6 +118,7 @@ export function Settings({
       setToken('');
       return;
     }
+    setSent(false);
     // `no-chat` is not shown as a problem: it is the expected result of a first
     // attempt, and the awaiting panel already says what to do about it.
     setProblem(outcome === 'no-chat' ? null : PROBLEM_COPY[outcome]);
@@ -249,11 +254,45 @@ export function Settings({
                     Telegram will not let a bot message you until you have written to it first.
                   </p>
                 ) : (
-                  <p class="wick-settings__note">
-                    Connected. Wick sent your current usage to Telegram just now &mdash; if it
-                    arrived, alerts will too. Nothing passes through a server. Disconnecting forgets
-                    the token here; to kill the bot itself, revoke it in @BotFather.
-                  </p>
+                  <>
+                    <div class="wick-settings__row">
+                      {onTest !== undefined && (
+                        <button
+                          type="button"
+                          class="wick-button wick-settings__inline-button"
+                          disabled={busy}
+                          onClick={() => {
+                            void (async () => {
+                              setBusy(true);
+                              setProblem(null);
+                              const outcome = await onTest();
+                              setBusy(false);
+                              setSent(outcome === 'ok');
+                              if (outcome !== 'ok') setProblem(PROBLEM_COPY[outcome]);
+                            })();
+                          }}
+                        >
+                          {busy ? 'Sending' : sent ? 'Sent' : 'Send test message'}
+                        </button>
+                      )}
+                    </div>
+
+                    <p class="wick-settings__note">
+                      Connected. Wick sent your current usage when you finished setup &mdash; if it
+                      arrived, alerts will too. Nothing passes through a server.
+                    </p>
+
+                    <p class="wick-settings__note">
+                      In Telegram, send your bot <code>/weekly</code> or <code>/daily</code> to ask
+                      for usage. Replies come from this extension rather than a server, so Chrome
+                      has to be open and an answer can take a few minutes.
+                    </p>
+
+                    <p class="wick-settings__note">
+                      Disconnecting forgets the token here; to kill the bot itself, revoke it in
+                      @BotFather.
+                    </p>
+                  </>
                 )}
               </>
             )}

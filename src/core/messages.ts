@@ -105,6 +105,13 @@ export type RuntimeMessage =
    * this boundary to retry.
    */
   | { type: 'wick:telegram-finish' }
+  /**
+   * Send a test message.
+   *
+   * Exists because "Connected" on a settings screen proves only that storage
+   * was written. The user needs to see something arrive.
+   */
+  | { type: 'wick:telegram-test' }
   /** Forget the token and the chat. Nothing is revoked — see ADR 0009. */
   | { type: 'wick:telegram-disconnect' };
 
@@ -150,6 +157,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:get-state' ||
     type === 'wick:telegram-connect' ||
     type === 'wick:telegram-finish' ||
+    type === 'wick:telegram-test' ||
     type === 'wick:telegram-disconnect'
   );
 }
