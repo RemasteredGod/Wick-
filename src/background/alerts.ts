@@ -40,6 +40,7 @@ import {
   readAlerts,
   readHistory,
   readSettings,
+  readSnapshot,
   recordAlert,
   writeSettings,
 } from './store';
@@ -457,7 +458,7 @@ async function dispatch(alert: PendingAlert, settings: Settings, now: number): P
     // The result is deliberately unused: there is no retry, no queue, and no
     // fallback. A late threshold warning is worse than a missing one, and a
     // retry storm is how a bot gets itself rate limited.
-    await send({ kind: alert.kind, text: alert.text });
+    await send(alert.text);
   } catch {
     // `send` returns failures rather than throwing, so this is only reachable
     // if the module itself is broken. Still not the worker's problem.
@@ -529,6 +530,13 @@ export function handleTelegramMessage(
     return true;
   }
 
+  if (message.type === 'wick:telegram-finish') {
+    void finishConnect()
+      .then((outcome) => sendResponse({ ok: true, outcome }))
+      .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
+    return true;
+  }
+
   if (message.type === 'wick:telegram-disconnect') {
     void disconnect()
       .then(() => sendResponse({ ok: true }))
@@ -557,15 +565,69 @@ async function connectBot(botToken: string): Promise<ConnectOutcome> {
   const verified = await verifyToken(trimmed);
   if (!verified.ok) return outcomeFor(verified.failure);
 
-  const chat = await discoverChat(trimmed);
+  // The token is kept the moment Telegram vouches for it, before the chat is
+  // known. That is a real half-connected state and it is deliberate: the user
+  // still has to message their bot, and making them re-paste a 46-character
+  // token to do it would be a bad trade. What must never happen is a
+  // half-connected state that *looks* finished — `chatId` stays null, and both
+  // the settings screen and `dispatch` read it rather than the token.
+  await writeSettings({ botToken: trimmed, chatId: null, chatLabel: verified.value });
+
+  return finishConnect();
+}
+
+/**
+ * Find the chat, and prove it works.
+ *
+ * Split out because it is also the whole of the second attempt: the user pastes
+ * a token, is told to message their bot, does it, and presses Finish. Reads the
+ * token from storage rather than taking it, so nothing has to carry a
+ * credential back across the popup boundary to get here.
+ *
+ * On success it **sends a message**. A settings screen that says "Connected" has
+ * only proved it can write to its own storage; a message arriving in Telegram is
+ * the only evidence the user actually wanted.
+ */
+async function finishConnect(): Promise<ConnectOutcome> {
+  const { botToken } = await readSettings();
+  if (botToken === null) return 'bad-token';
+
+  const chat = await discoverChat(botToken);
   if (!chat.ok) return outcomeFor(chat.failure);
 
-  await writeSettings({
-    botToken: trimmed,
-    chatId: chat.value.chatId,
-    chatLabel: chat.value.label,
-  });
+  await writeSettings({ chatId: chat.value.chatId, chatLabel: chat.value.label });
+
+  try {
+    await send(await connectedMessage(Date.now()));
+  } catch {
+    // The connection is real even if this one message did not land. Reporting
+    // failure here would tell the user to redo something that is already done.
+  }
+
   return 'ok';
+}
+
+/**
+ * What Wick says when it first says anything.
+ *
+ * Carries the current reading rather than a bare "connected", so the message
+ * doubles as proof the whole path works — token, chat, and the numbers the
+ * alerts will be about.
+ *
+ * A fresh install has no snapshot yet. It says so instead of reporting zero,
+ * which is the same rule the rest of Wick follows: a number nobody has measured
+ * is unknown, not nought.
+ */
+export async function connectedMessage(now: number): Promise<string> {
+  const [snapshot, history] = await Promise.all([readSnapshot(), readHistory()]);
+  const window = weeklyWindow(snapshot?.windows ?? []);
+
+  if (window === null || window.utilization === null) {
+    return 'Wick is connected. No usage reading yet — open claude.ai and it will start tracking.';
+  }
+
+  return `Wick is connected.
+${thresholdMessage(window, project({ window, history, now }), now)}`;
 }
 
 /**

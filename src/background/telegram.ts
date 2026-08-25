@@ -25,7 +25,6 @@
  */
 
 import { readSettings } from './store';
-import type { AlertKind } from '~/core/types';
 
 /** The Bot API origin. One copy, and `src/manifest.ts` must match it. */
 export const TELEGRAM_ORIGIN = 'https://api.telegram.org';
@@ -75,13 +74,6 @@ export interface ChatBinding {
   chatId: number;
   /** Where alerts will land, as Telegram describes it. For the settings screen. */
   label: string;
-}
-
-/** One composed message. The extension writes the text; nothing here parses it. */
-export interface TelegramAlert {
-  kind: AlertKind;
-  /** The full message body, newlines and all. */
-  text: string;
 }
 
 /**
@@ -143,6 +135,11 @@ export async function discoverChat(botToken: string): Promise<TelegramResult<Cha
 /**
  * Post one alert.
  *
+ * Takes the text and nothing else. The relay design carried an alert `kind`
+ * because the server bucketed rate limits by it; with no server in the path
+ * there is nothing to bucket, and a parameter kept only because something used
+ * to read it is a question for whoever reads this next.
+ *
  * Reads the token and chat itself rather than taking them, so no caller has to
  * hold a credential in a local variable. Nothing stored means the user has not
  * set alerts up, which is the normal case and not an error.
@@ -151,13 +148,13 @@ export async function discoverChat(botToken: string): Promise<TelegramResult<Cha
  * has already been recorded as sent and the local notification has already gone
  * out; retrying would turn one refused message into a storm.
  */
-export async function send(alert: TelegramAlert): Promise<TelegramResult<null>> {
+export async function send(text: string): Promise<TelegramResult<null>> {
   const settings = await current();
   if (settings === null) return { ok: false, failure: 'not-connected' };
 
   const result = await call(settings.botToken, 'sendMessage', {
     chat_id: settings.chatId,
-    text: alert.text,
+    text,
     disable_web_page_preview: true,
   });
 

@@ -42,6 +42,11 @@ interface SettingsProps {
    * is disabled rather than pretending to work.
    */
   onConnect?: (botToken: string) => Promise<ConnectOutcome>;
+  /**
+   * Retry chat discovery for a token already stored. The second half of the
+   * flow, after the user has messaged their bot.
+   */
+  onFinish?: () => Promise<ConnectOutcome>;
   /** Forget the token and chat locally. Nothing is revoked — see ADR 0009. */
   onDisconnect?: () => void;
   /** Leave the settings view. */
@@ -77,6 +82,7 @@ export function Settings({
   settings,
   onChange,
   onConnect,
+  onFinish,
   onDisconnect,
   onClose,
   version,
@@ -85,29 +91,39 @@ export function Settings({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  // Both halves must be present. A token with no chat has nowhere to send, and
-  // showing it as connected would be a lie the user only discovers at 80%.
-  const connected = settings.botToken !== null && settings.chatId !== null;
+  /**
+   * Three states, not two.
+   *
+   * `awaiting` is the one the old two-state version could not express: Telegram
+   * has vouched for the token, but the user has not messaged their bot yet so
+   * there is no chat to send to. That is the commonest point to be at during
+   * setup, and showing it as "not connected" made the token look rejected when
+   * nothing was wrong with it.
+   */
+  const stage: 'empty' | 'awaiting' | 'connected' =
+    settings.botToken === null ? 'empty' : settings.chatId === null ? 'awaiting' : 'connected';
 
-  async function submitToken(): Promise<void> {
-    if (onConnect === undefined || busy) return;
-
-    const trimmed = token.trim();
-    if (trimmed === '') return;
-
+  async function run(attempt: () => Promise<ConnectOutcome>): Promise<void> {
+    if (busy) return;
     setBusy(true);
     setProblem(null);
-    const outcome = await onConnect(trimmed);
+    const outcome = await attempt();
     setBusy(false);
 
     if (outcome === 'ok') {
-      // Cleared on success only. A token that failed for a fixable reason —
-      // the user has not messaged their bot yet — should still be sitting
-      // there when they press Connect again.
       setToken('');
       return;
     }
-    setProblem(PROBLEM_COPY[outcome]);
+    // `no-chat` is not shown as a problem: it is the expected result of a first
+    // attempt, and the awaiting panel already says what to do about it.
+    setProblem(outcome === 'no-chat' ? null : PROBLEM_COPY[outcome]);
+  }
+
+  async function submitToken(): Promise<void> {
+    if (onConnect === undefined) return;
+    const trimmed = token.trim();
+    if (trimmed === '') return;
+    await run(() => onConnect(trimmed));
   }
 
   function toggleDisplay(key: keyof DisplayOptions): void {
@@ -139,29 +155,28 @@ export function Settings({
           <div class="wick-settings__field">
             <div class="wick-settings__status-row">
               <span
-                class={`wick-telegram__status${connected ? '' : ' wick-telegram__status--off'}`}
+                class={`wick-telegram__status${stage === 'connected' ? '' : ' wick-telegram__status--off'}`}
               >
                 <span class="wick-telegram__dot" />
-                {connected ? (settings.chatLabel ?? 'Connected') : 'Not connected'}
+                {stage === 'connected'
+                  ? (settings.chatLabel ?? 'Connected')
+                  : stage === 'awaiting'
+                    ? 'Waiting for your first message'
+                    : 'Not connected'}
               </span>
 
-              {connected && onDisconnect !== undefined && (
+              {stage !== 'empty' && onDisconnect !== undefined && (
                 <button
                   type="button"
                   class="wick-button wick-settings__inline-button"
                   onClick={onDisconnect}
                 >
-                  Disconnect
+                  {stage === 'connected' ? 'Disconnect' : 'Clear'}
                 </button>
               )}
             </div>
 
-            {connected ? (
-              <p class="wick-settings__note">
-                Alerts go straight to your own bot. No server sees them. Disconnecting forgets the
-                token here &mdash; to kill the bot itself, revoke it in @BotFather.
-              </p>
-            ) : (
+            {stage === 'empty' ? (
               <form
                 class="wick-settings__field"
                 onSubmit={(event) => {
@@ -186,7 +201,7 @@ export function Settings({
                     class="wick-button wick-settings__inline-button wick-settings__primary"
                     disabled={onConnect === undefined || busy || token.trim() === ''}
                   >
-                    {busy ? 'Connecting' : 'Connect'}
+                    {busy ? 'Checking' : 'Connect'}
                   </button>
                 </div>
 
@@ -196,12 +211,51 @@ export function Settings({
                   ) : (
                     <>
                       Message <strong>@BotFather</strong>, send <code>/newbot</code>, and paste the
-                      token it gives you. Then send your new bot any message &mdash; Telegram will
-                      not let it write to you first &mdash; and press Connect.
+                      token it gives you.
                     </>
                   )}
                 </p>
               </form>
+            ) : (
+              <>
+                {/* The token stays on screen once accepted, greyed and masked.
+                    It is the only evidence the field was filled in, and the
+                    secret half is never rendered. */}
+                <div class="wick-settings__row">
+                  <input
+                    type="text"
+                    class="wick-settings__input"
+                    value={maskToken(settings.botToken)}
+                    disabled
+                    readonly
+                    aria-label="Telegram bot token, saved"
+                  />
+                  {stage === 'awaiting' && onFinish !== undefined && (
+                    <button
+                      type="button"
+                      class="wick-button wick-settings__inline-button wick-settings__primary"
+                      disabled={busy}
+                      onClick={() => void run(onFinish)}
+                    >
+                      {busy ? 'Checking' : 'Finish'}
+                    </button>
+                  )}
+                </div>
+
+                {stage === 'awaiting' ? (
+                  <p class="wick-settings__note">
+                    Token accepted{settings.chatLabel === null ? '' : ` for ${settings.chatLabel}`}.
+                    Now open Telegram, send your bot <code>/start</code>, and press Finish &mdash;
+                    Telegram will not let a bot message you until you have written to it first.
+                  </p>
+                ) : (
+                  <p class="wick-settings__note">
+                    Connected. Wick sent your current usage to Telegram just now &mdash; if it
+                    arrived, alerts will too. Nothing passes through a server. Disconnecting forgets
+                    the token here; to kill the bot itself, revoke it in @BotFather.
+                  </p>
+                )}
+              </>
             )}
 
             {problem !== null && <p class="wick-settings__note wick-settings__note--problem">{problem}</p>}
@@ -325,6 +379,18 @@ export function Settings({
  * A rejected code is much more often expired than mistyped, so the copy leads
  * with that rather than implying the user cannot type.
  */
+/**
+ * Show enough of a token to recognise it, and none of the secret.
+ *
+ * A Telegram token is `<bot id>:<secret>`. The id half identifies which bot
+ * without being the credential, so it is the half worth showing.
+ */
+function maskToken(botToken: string | null): string {
+  if (botToken === null) return '';
+  const [id] = botToken.split(':');
+  return id === undefined || id === botToken ? '••••••••' : `${id}:${'•'.repeat(12)}`;
+}
+
 const PROBLEM_COPY: Record<Exclude<ConnectOutcome, 'ok'>, string> = {
   'bad-token': 'Telegram did not accept that token. Copy it again from @BotFather.',
   // The commonest first attempt, and the only one where nothing is wrong —

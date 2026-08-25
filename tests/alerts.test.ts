@@ -476,9 +476,10 @@ describe('the connect flow', () => {
     expect((await storedSettings()).botToken).toBeNull();
   });
 
-  it('reports an empty update queue as a step the user has left to do', async () => {
+  it('keeps a verified token when there is no chat yet, so nothing is re-typed', async () => {
     // The commonest first attempt: the token is fine, but Telegram will not let
-    // a bot message someone who has not written to it.
+    // a bot message someone who has not written to it. Discarding a 46-character
+    // token over a step the user has simply not done yet would be a bad trade.
     vi.stubGlobal('fetch', telegram(ME, { ok: true, result: [] }));
     settings({ botToken: null, chatId: null });
 
@@ -486,12 +487,64 @@ describe('the connect flow', () => {
       ok: true,
       outcome: 'no-chat',
     });
-    expect((await storedSettings()).botToken).toBeNull();
+
+    const saved = await storedSettings();
+    expect(saved.botToken).toBe('123:ABC');
+    // But not connected: chatId is what everything else reads.
+    expect(saved.chatId).toBeNull();
+    expect(saved.chatLabel).toBe('@my_wick_bot');
   });
 
-  it('writes nothing when the token verifies but the chat lookup fails', async () => {
-    // Half-connected would look connected on the settings screen and silently
-    // send nothing, which is the worst available failure.
+  it('finishes from the stored token once the user has messaged the bot', async () => {
+    const fetchMock = telegram(ME, CHAT);
+    vi.stubGlobal('fetch', fetchMock);
+    // Where the previous test left off.
+    settings({ botToken: '123:ABC', chatId: null, chatLabel: '@my_wick_bot' });
+
+    expect(await ask({ type: 'wick:telegram-finish' })).toEqual({ ok: true, outcome: 'ok' });
+
+    const saved = await storedSettings();
+    expect(saved.chatId).toBe(4242);
+    expect(saved.chatLabel).toBe('@someone');
+  });
+
+  it('sends a message on success, because storage is not proof', async () => {
+    // A settings screen saying "Connected" has only proved it can write to its
+    // own storage. A message landing in Telegram is the evidence the user wants.
+    const sent: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      if (String(url).includes('getUpdates')) {
+        return new Response(JSON.stringify(CHAT), { status: 200 });
+      }
+      if (String(url).includes('sendMessage')) {
+        sent.push(String((JSON.parse(String(init.body)) as { text: string }).text));
+      }
+      return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+    });
+    settings({ botToken: '123:ABC', chatId: null });
+
+    await ask({ type: 'wick:telegram-finish' });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('Wick is connected');
+  });
+
+  it('still connects when the confirmation message cannot be delivered', async () => {
+    // The connection is real even if one message did not land. Failing here
+    // would tell the user to redo something already done.
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).includes('sendMessage')) throw new Error('offline');
+      return new Response(JSON.stringify(CHAT), { status: 200 });
+    });
+    settings({ botToken: '123:ABC', chatId: null });
+
+    expect(await ask({ type: 'wick:telegram-finish' })).toEqual({ ok: true, outcome: 'ok' });
+    expect((await storedSettings()).chatId).toBe(4242);
+  });
+
+  it('never leaves a stored chat when the lookup fails', async () => {
+    // The token may be kept; a chat may not. Half-connected is allowed only in
+    // the direction that cannot silently swallow an alert.
     vi.stubGlobal('fetch', async (url: string) => {
       if (String(url).includes('getMe')) return new Response(JSON.stringify(ME), { status: 200 });
       throw new Error('offline');
@@ -503,9 +556,7 @@ describe('the connect flow', () => {
       outcome: 'unavailable',
     });
 
-    const saved = await storedSettings();
-    expect(saved.botToken).toBeNull();
-    expect(saved.chatId).toBeNull();
+    expect((await storedSettings()).chatId).toBeNull();
   });
 
   it('reports unreachable Telegram as unavailable, and writes nothing', async () => {

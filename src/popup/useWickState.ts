@@ -96,6 +96,21 @@ export async function connectTelegram(botToken: string): Promise<ConnectOutcome>
   return 'outcome' in reply ? reply.outcome : 'unavailable';
 }
 
+/**
+ * Finish a connection whose token is already stored.
+ *
+ * Asks for the origin again for the same reason `connectTelegram` does — this
+ * is a separate click and therefore a separate gesture, and `request` resolves
+ * true without prompting for a grant the user has already given.
+ */
+export async function finishTelegram(): Promise<ConnectOutcome> {
+  if (!(await grantTelegramOrigin())) return 'not-permitted';
+
+  const reply = await sendToWorker({ type: 'wick:telegram-finish' });
+  if (reply === null || !reply.ok) return 'unavailable';
+  return 'outcome' in reply ? reply.outcome : 'unavailable';
+}
+
 /** Forget the token. Fire and forget; the settings write comes back through storage. */
 export function disconnectTelegram(): void {
   void sendToWorker({ type: 'wick:telegram-disconnect' });

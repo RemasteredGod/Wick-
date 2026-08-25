@@ -12,7 +12,12 @@ import { Projection } from './components/Projection';
 import { Settings } from './components/Settings';
 import { TelegramCard } from './components/TelegramCard';
 import { UsageMeter } from './components/UsageMeter';
-import { connectTelegram, disconnectTelegram, useWickState } from './useWickState';
+import {
+  connectTelegram,
+  disconnectTelegram,
+  finishTelegram,
+  useWickState,
+} from './useWickState';
 
 /**
  * The popup — artboard 02 of the design archive, at its own width.
@@ -45,6 +50,7 @@ export function App() {
         settings={state.settings}
         onChange={update}
         onConnect={connectTelegram}
+        onFinish={finishTelegram}
         onDisconnect={disconnectTelegram}
         onClose={() => setSettingsOpen(false)}
         version={chrome.runtime.getManifest().version}

@@ -96,6 +96,15 @@ export type RuntimeMessage =
    * never sent back.
    */
   | { type: 'wick:telegram-connect'; botToken: string }
+  /**
+   * Finish a connection whose token is already stored.
+   *
+   * The second half of the flow: the user has pasted a token, been told to
+   * message their bot, and done it. Carries no payload — the worker reads the
+   * token it already holds, so nothing has to send a credential back across
+   * this boundary to retry.
+   */
+  | { type: 'wick:telegram-finish' }
   /** Forget the token and the chat. Nothing is revoked — see ADR 0009. */
   | { type: 'wick:telegram-disconnect' };
 
@@ -140,6 +149,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:tab-open' ||
     type === 'wick:get-state' ||
     type === 'wick:telegram-connect' ||
+    type === 'wick:telegram-finish' ||
     type === 'wick:telegram-disconnect'
   );
 }
