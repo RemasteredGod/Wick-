@@ -5,21 +5,22 @@ read this before opening a pull request.
 
 ## The clean-room rule
 
-**Do not read, clone, or copy from `lugia19/Claude-Usage-Extension`.**
+**Do not read, clone, or copy from other Claude usage-tracking extensions.**
 
-It is a GPL-3.0 project solving an adjacent problem. Wick is a clean-room
-implementation: not a fork, and not a derivative work. Copying from it — source,
-build scripts, manifest, file layout — would relicense Wick under GPL-3.0 and
-forfeit its own terms.
+Several exist, and at least one is GPL-3.0. Wick is a clean-room
+implementation: not a fork, and not a derivative work. Copying from one —
+source, build scripts, manifest, file layout — would relicense Wick under that
+project's terms and forfeit its own.
 
 This applies to you as much as to any AI agent working here. If you have read
-that project's source, please say so on your pull request, so we can decide
+such a project's source, please say so on your pull request, so we can decide
 whether the overlapping area needs to be written by someone who has not.
 
 What *is* fine: facts about claude.ai's network protocol. Endpoint paths, event
-names and JSON field names are not copyrightable, and
-[`docs/protocol.md`](docs/protocol.md) is our own independently written
-specification of them. Implement against that document.
+names and JSON field names are not copyrightable. Work them out from your own
+observation of the traffic, or ask a maintainer for the project's protocol
+notes, which are kept outside this repository. Do not work them out by reading
+another implementation.
 
 ## Architecture
 
@@ -43,27 +44,27 @@ A change to how data is fetched must never require touching the interface.
 v1 is Claude only, and tracks percentages only. Please do not add token
 counting, tokenizer dependencies, per-feature cost tables, cache-hit inference,
 or other providers. Each was considered and deliberately rejected — see
-[`docs/decisions/`](docs/decisions/). Reopening one means writing a decision
+[the decision records](the decision records). Reopening one means writing a decision
 record first, which is a welcome kind of pull request in itself.
 
 ## Design
 
 The visual design was produced separately in Claude Design and extracted into
-`src/styles/tokens.css`, `src/assets/`, and [`docs/design.md`](docs/design.md).
+`src/styles/tokens.css`, `src/assets/`, and the design notes.
 It is not ours to re-author on a whim.
 
 - Never introduce a raw colour, spacing value, radius, or font size. Use a
   `--wick-*` token. If the token you need does not exist, open an issue rather
   than inventing one.
 - Do not "clean up", harmonise, or restyle existing components.
-- `docs/design.md` records where every token came from. Changing a token means
+- the design notes record where every token came from. Changing a token means
   updating its provenance entry in the same commit.
 - The warn and crit colours are reserved for state. If they appear
   decoratively, the warning stops meaning anything.
 
 ## The protocol breaks constantly
 
-Everything in `docs/protocol.md` is undocumented and will drift.
+Everything in the protocol notes are undocumented and will drift.
 
 - Every parse is defensive. A shape change degrades the display; it never throws
   into the service worker.

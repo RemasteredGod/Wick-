@@ -19,7 +19,7 @@ interface SidebarCardProps {
  * Artboard 01: two bars and no chrome. It opens the panel and renders none of
  * it — the panel is mounted in the main content frame, because a sidebar is a
  * scroll container and a panel positioned out of one is clipped by it. See
- * `UsagePanel` and docs/design.md deviation 4.
+ * `UsagePanel` and the design notes deviation 4.
  *
  * The archive's first principle for this surface is "borrow, never brand" — no
  * logo, no coloured banner, nothing that announces itself in someone else's

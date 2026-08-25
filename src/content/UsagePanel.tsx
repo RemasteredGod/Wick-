@@ -59,7 +59,7 @@ interface Position {
  * rather than a preference: the sidebar scrolls, so a panel positioned out of it
  * is clipped by the scroll container and appears to open *within* the
  * navigation. Mounted in the main content area it has the room the artboard
- * draws it with. docs/design.md deviation 4.
+ * draws it with. the design notes deviation 4.
  *
  * Position is measured, not assumed. The archive's `left:302px` is a coordinate
  * on a canvas; a real sidebar can be any width and the user can resize it, so

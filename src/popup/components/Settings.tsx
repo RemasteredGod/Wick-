@@ -65,12 +65,12 @@ interface SettingsProps {
  * already recorded:
  *
  * 1. **A view, not a modal.** A 400px card does not fit a 380px popup.
- *    docs/design.md deviation 3.
+ *    the design notes deviation 3.
  * 2. **No bot-token field and no chat-ID field.** The archive takes both and
  *    keeps them in `chrome.storage.local`, which is plain JSON on disk holding
  *    an unscoped bearer credential. What this screen takes instead is a
  *    short-lived connect code, exchanged for a revocable per-user token. See
- *    docs/decisions/0002-telegram-relay-not-bot-token.md.
+ *    ADR 0002 (relay, not a stored bot token).
  *
  * The archive's Save button also goes. Every control here writes through
  * `onChange` as it is touched, so a Save button would only offer the chance to
@@ -442,7 +442,7 @@ const PROBLEM_COPY: Record<Exclude<ConnectOutcome, 'ok'>, string> = {
 /**
  * Drawn rather than typed, for the same reason as the gear: the archive uses a
  * character (×) and Windows may route it through a font Wick does not control.
- * See docs/design.md deviation 6.
+ * See the design notes deviation 6.
  */
 function CloseIcon() {
   return (

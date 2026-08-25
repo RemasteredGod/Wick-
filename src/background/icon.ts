@@ -124,7 +124,7 @@ export type DrawOp = FillPathOp | FillRectOp;
  */
 export function iconDisplayList(gauge: Gauge, size: number): DrawOp[] {
   // One geometry at every size. The only size-specific concession is the
-  // minimum body width inside `rasterLayout` — see docs/decisions/0004.
+  // minimum body width inside `rasterLayout` — see the decision records0004.
   const { body, flame } = rasterLayout(MARK_SIZES.hero, size);
   const track = bodyPath(body.x, body.y, body.width, body.height, body.radius);
   const lit = gauge.remaining !== null;

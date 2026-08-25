@@ -11,7 +11,7 @@ baseline than it did.
 
 Owner decisions are marked **[decide]**. Two of them have to be settled before
 any of this is worth building, because they reverse standing decisions in
-`docs/decisions/`.
+the decision records.
 
 ---
 
@@ -32,12 +32,12 @@ documents, and the plan says so out loud in §1 rather than burying it.
 ## 1. What this reopens
 
 `AGENTS.md` says: *"Each of these was considered and deliberately rejected. See
-`docs/decisions/`. Reopening them requires a new decision record."* Two are
+the decision records. Reopening them requires a new decision record."* Two are
 being reopened.
 
 ### 1.1 Token counting — ADR 0001
 
-`docs/decisions/0001-no-token-estimation.md` rules out token counting. A token
+ADR 0001 (no token estimation) rules out token counting. A token
 leaderboard needs token counts, so on its face this is a straight reversal.
 
 It is not, and the distinction is the whole reason this is buildable:
@@ -57,14 +57,14 @@ first-party record* are in scope; token *estimation* stays rejected, for the
 extension and for the reporter alike. If the reporter ever cannot find a count,
 it reports nothing for that session rather than estimating one.
 
-**[decide]** Write `docs/decisions/0005-claude-code-token-counts.md` saying
+**[decide]** Write ADR 0005 (Claude Code token counts) saying
 exactly that, or reject the leaderboard.
 
 ### 1.2 Usage data leaving the machine — ADR 0003 and PRIVACY.md
 
 This is the bigger one, and it cannot be finessed.
 
-`docs/decisions/0003-telegram-relay-design.md` lists what the relay stores and
+ADR 0003 (relay design) lists what the relay stores and
 then lists what it refuses to store, including:
 
 > **No percentages, window keys, paces, or exhaustion estimates.** These are
@@ -93,7 +93,7 @@ The plan's position, which the new record has to state and defend:
   than the day.
 - Opting out deletes the rows. `/forget` already exists and gains the new table.
 
-**[decide]** Write `docs/decisions/0006-leaderboard.md`, and rewrite
+**[decide]** Write ADR 0006 (the leaderboard), and rewrite
 `PRIVACY.md`'s headline sentence to name both exceptions — alerts, and
 leaderboard submissions — instead of one. Anything less is a privacy promise the
 software does not keep.
@@ -151,7 +151,7 @@ load-bearing. They must match character for character:
 
 - `src/background/relay.ts:39` — `RELAY_ORIGIN`
 - `src/manifest.ts` — `RELAY_MATCH`
-- `docs/decisions/0003-telegram-relay-design.md` — three mentions, plus the
+- ADR 0003 (relay design) — three mentions, plus the
   "that host is a placeholder" paragraph, which becomes a statement of fact
 - `README.md` — the M6 row still says the relay has no home
 - `PRIVACY.md` — same

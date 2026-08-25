@@ -13,7 +13,7 @@
  * cycle?" is answerable from storage every time.
  *
  * Never holds a Telegram bot token. See
- * docs/decisions/0009-per-user-bot-tokens.md for why alerts go straight to
+ * ADR 0009 (per-user bot tokens) for why alerts go straight to
  * api.telegram.org with the user's own bot token.
  *
  * Nothing in this file may throw into the service worker.

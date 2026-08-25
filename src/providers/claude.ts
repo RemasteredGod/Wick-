@@ -3,7 +3,7 @@
  *
  * This is the only file in the codebase that knows claude.ai exists — its
  * URLs, its cookie names, its window keys, its wire field names. Everything
- * here is written against docs/protocol.md, which is Wick's own specification
+ * here is written against the protocol notes, which is Wick's own specification
  * of observed network behaviour, independently written. See the clean-room rule
  * in AGENTS.md.
  *
@@ -11,7 +11,7 @@
  * path in particular is a hypothesis, which is why `fetchUsage` probes a short
  * list of candidates instead of asserting one, and why every parse returns
  * "nothing" rather than throwing. A wrong guess must degrade the display; it
- * must never break the poll loop. See docs/verifying-the-protocol.md for how to
+ * must never break the poll loop. See the protocol-verification notes for how to
  * replace the guesses with observations.
  */
 
@@ -34,7 +34,7 @@ const ACTIVE_ORG_COOKIE = 'lastActiveOrg';
  * Candidate usage endpoints, in the order they are tried. `{org}` is replaced
  * with the URL-encoded organisation ID.
  *
- * The first is the hypothesis recorded in docs/protocol.md; the rest are the
+ * The first is the hypothesis recorded in the protocol notes; the rest are the
  * names the same API would plausibly use for the same resource, ordered by how
  * closely they match the vocabulary the endpoint's own response uses
  * (`limits[]`). None is confirmed. Probing costs one extra request on a cold
@@ -66,7 +66,7 @@ export function resetUsagePathMemo(): void {
 
 /**
  * URLs whose completion means the cached reading may be stale.
- * docs/protocol.md §"Cache invalidation triggers". Watched headers-only.
+ * the protocol notes §"Cache invalidation triggers". Watched headers-only.
  */
 export const INVALIDATION_PATTERNS = [
   `${ORIGIN}/api/account_profile*`,
@@ -314,7 +314,7 @@ export function limitWindowsFromEvent(event: unknown): LimitWindow[] | null {
 /* ---- The completion stream ----------------------------------------------- */
 
 /**
- * The two requests that carry a completion stream, per docs/protocol.md.
+ * The two requests that carry a completion stream, per the protocol notes.
  * Anchored at the end of the path so a conversation ID in front of it — or a
  * query string behind it — makes no difference.
  */
@@ -362,7 +362,7 @@ export interface SseChunk {
 /**
  * Frame one chunk of a `text/event-stream` into records.
  *
- * Pure, total, and deliberately length-agnostic: docs/protocol.md records that
+ * Pure, total, and deliberately length-agnostic: the protocol notes record that
  * claude.ai right-pads each record's JSON with a variable run of spaces before
  * the closing brace, so record lengths mean nothing and no logic here may count
  * bytes. Framing is by blank line only, which is what the padding does not
@@ -441,7 +441,7 @@ const REFUSAL_MESSAGE_FIELDS = ['message', 'detail', 'error_message', 'body', 'd
 /**
  * Pull limit windows out of a refused send.
  *
- * docs/protocol.md §"Rejection responses": the report sits one level deeper
+ * the protocol notes §"Rejection responses": the report sits one level deeper
  * than on the stream and is double-encoded as a JSON string inside a message
  * field, so the useful payload is one `JSON.parse` past where it looks. Which
  * field holds it is not confirmed, so this looks in every envelope it plausibly

@@ -3,7 +3,7 @@
  *
  * `iconDisplayList` is pure, so the same list that Chrome rasterises can be
  * written out as SVG and opened. That is how deviation 2 was settled in
- * docs/decisions/0004-mark-at-16px.md: by looking at the mark at 16px rather
+ * ADR 0004 (the mark at 16px): by looking at the mark at 16px rather
  * than by arguing about it.
  *
  * It lives under `tests/` because that is where the module resolver and the

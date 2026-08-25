@@ -21,7 +21,7 @@
  * reason a message fails to render. Nothing in the tee is ever awaited on the
  * path the page is waiting on.
  *
- * Two further hazards, recorded in docs/protocol.md and easy to be caught by:
+ * Two further hazards, recorded in the protocol notes and easy to be caught by:
  * records are right-padded with a variable run of spaces, so byte lengths are
  * not stable and nothing may key off them; and delivery is bursty, so an entire
  * short reply can arrive as a single delta. Hence a cap on the accumulated
@@ -43,7 +43,7 @@ import { isCompletionUrl, limitWindowsFromEvent, parseSseChunk } from '~/provide
  * This is not a cap on the reply — complete records are parsed and dropped as
  * they arrive, so a long conversation never accumulates. It bounds only the
  * fragment Wick is still waiting for a blank line to finish. Two megabytes of
- * one unterminated record means the framing assumption in docs/protocol.md is
+ * one unterminated record means the framing assumption in the protocol notes are
  * wrong, and a number read out of a stream that cannot be framed is worse than
  * no number: the authoritative poll is a minute away at most. So the stream is
  * abandoned, not truncated.
@@ -104,7 +104,7 @@ async function observe(response: Response): Promise<void> {
 
   const contentType = copy.headers.get('content-type') ?? '';
 
-  // A refused send answers with JSON instead of a stream — docs/protocol.md
+  // A refused send answers with JSON instead of a stream — the protocol notes
   // §"Rejection responses". Anything that is not a stream is treated as one of
   // those and handed over whole; deciding what it means is the bridge's job.
   if (!contentType.includes('text/event-stream')) {

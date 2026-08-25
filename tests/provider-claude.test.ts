@@ -1,5 +1,5 @@
 /**
- * The Claude provider, against the shapes docs/protocol.md describes.
+ * The Claude provider, against the shapes the protocol notes describes.
  *
  * Every fixture here is written from that document, not captured from live
  * traffic — see the UNVERIFIED banner at the top of it. What these tests
@@ -29,7 +29,7 @@ import { usagePaid, usageScoped } from './fixtures/claude';
 
 /**
  * Right-pad a JSON document with spaces before its closing brace, the way
- * docs/protocol.md says claude.ai does. The point of the padding in these tests
+ * the protocol notes says claude.ai does. The point of the padding in these tests
  * is that changing `spaces` must change nothing at all.
  */
 function padded(json: string, spaces: number): string {
@@ -147,7 +147,7 @@ describe('limitWindowsFromEvent', () => {
   });
 
   it('carries a bound window through as exceeded even though it reads under 100%', () => {
-    // docs/protocol.md: status wins over the number at the boundary. If this
+    // the protocol notes: status wins over the number at the boundary. If this
     // ever reports 'ok' the panel says 98% next to a composer that will not
     // send, which is the single most visible way this extension can look broken.
     expect(session?.status).toBe('exceeded');

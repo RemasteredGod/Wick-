@@ -1,10 +1,10 @@
 /**
- * Wire payloads, as `docs/protocol.md` describes them.
+ * Wire payloads, as the protocol notes describes them.
  *
  * **These are written from the specification, not captured from live traffic.**
  * Nothing here is evidence that claude.ai sends these shapes; it is evidence
  * that Wick reads the shapes it believes claude.ai sends. Until step 3 of
- * `docs/verifying-the-protocol.md` is done, that distinction is the whole
+ * protocol verification is done, that distinction is the whole
  * status of the project's protocol work, and a fixture file that quietly
  * blurred it would be worse than none.
  *
@@ -120,7 +120,7 @@ export const refusalBody = JSON.stringify({
   },
 });
 
-/** One `text/event-stream` body, padded the way docs/protocol.md records. */
+/** One `text/event-stream` body, padded the way the protocol notes record. */
 export function sseBody(events: unknown[]): string {
   return events
     .map((event) => `event: completion\ndata: ${JSON.stringify(event)}     \n\n`)

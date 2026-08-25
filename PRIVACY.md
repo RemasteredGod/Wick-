@@ -40,7 +40,7 @@ yours and talks to nobody but you, and anything able to read that file can
 already read your claude.ai session cookies sitting beside it. You can revoke
 the token at any time in @BotFather, which stops it working everywhere, not just
 here. See
-[`docs/decisions/0009-per-user-bot-tokens.md`](docs/decisions/0009-per-user-bot-tokens.md).
+ADR 0009.
 
 Wick reads Telegram twice. Once during setup, to learn which chat to send to —
 you are never asked to look up a chat id. And once per polling tick, so the bot
@@ -91,8 +91,8 @@ The weekly Telegram leaderboard digest is off by default and is sent only after
 `/digest on`.
 
 See
-[`docs/decisions/0005-claude-code-token-counts.md`](docs/decisions/0005-claude-code-token-counts.md)
-and [`docs/decisions/0006-leaderboard.md`](docs/decisions/0006-leaderboard.md).
+ADR 0005
+and ADR 0006.
 
 ## Hosting logs
 

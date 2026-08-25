@@ -36,9 +36,9 @@ costs. claude.ai's server already computes a percentage per limit window, and
 the extension reads that number. The separate `wick-cc` reporter likewise uses
 only token counts already written by Claude Code's API; it never estimates a
 missing count. See
-[`docs/decisions/0001-no-token-estimation.md`](docs/decisions/0001-no-token-estimation.md)
+ADR 0001
 and
-[`docs/decisions/0005-claude-code-token-counts.md`](docs/decisions/0005-claude-code-token-counts.md).
+ADR 0005.
 
 ## Status
 
@@ -52,7 +52,7 @@ repository — the protocol has not been checked against live traffic. The
 leaderboard, its relay and the standalone reporter are v2 and not required to
 run the extension. Until live protocol verification is done, treat extension
 readings as provisional —
-`docs/protocol.md` is a hypothesis about undocumented behaviour, and it says so
+the protocol notes are a hypothesis about undocumented behaviour, and it says so
 on its first line.
 
 | Milestone | |

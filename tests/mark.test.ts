@@ -105,7 +105,7 @@ describe('remainingFor', () => {
   });
 
   it('reproduces the archive: session 68, weekly 82, mark at 18%', () => {
-    // docs/design.md, "The mark". The fill is remaining, not consumption.
+    // the design notes, "The mark". The fill is remaining, not consumption.
     expect(remainingFor([68, 82])).toBe(18);
   });
 
@@ -160,7 +160,7 @@ describe('path data', () => {
 describe('the flame orientation', () => {
   it('is still the archive rotation', () => {
     // 45 degrees clockwise on a square whose sharp corner is bottom-left puts
-    // that corner to the LEFT, not up — see docs/decisions/0004-mark-at-16px.md.
+    // that corner to the LEFT, not up — see ADR 0004 (the mark at 16px).
     // Faithful to the archive and flagged there for the owner. This test exists
     // so correcting it is a deliberate act rather than a drive-by.
     expect(FLAME_ROTATION_DEGREES).toBe(45);

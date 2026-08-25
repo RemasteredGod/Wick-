@@ -26,7 +26,7 @@ import {
  * Reproduces the expanded panel: header, two meters, the forecast, three stats,
  * a week of history, and alert status. The panel's own frame (16px radius, 1px
  * border, drop shadow) is dropped here because the popup window already
- * provides one; the injected sidebar panel keeps it. Recorded in docs/design.md.
+ * provides one; the injected sidebar panel keeps it. Recorded in the design notes.
  *
  * Every number comes from `chrome.storage.local` by way of `useWickState`.
  * Presentation reads from the store and never fetches: the one message this
@@ -34,7 +34,7 @@ import {
  * is the connect code.
  *
  * The settings screen replaces this view rather than floating over it. A 400px
- * modal does not fit a 372px popup — docs/design.md deviation 3.
+ * modal does not fit a 372px popup — the design notes deviation 3.
  */
 export function App() {
   const { state, ready, update } = useWickState();
@@ -85,7 +85,7 @@ export function App() {
           </span>
           <span class="wick-panel__title">Wick</span>
         </div>
-        {/* The archive badges the plan here. Nothing in docs/protocol.md reports
+        {/* The archive badges the plan here. Nothing in the protocol notes reports
             one, so rather than print a guess the badge is simply absent. */}
       </header>
 

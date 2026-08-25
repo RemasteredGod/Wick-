@@ -28,7 +28,7 @@ import {
   writeStatus,
 } from './store';
 
-/** Providers Wick collects from. One, for now — see docs/decisions/. */
+/** Providers Wick collects from. One, for now — see the decision records. */
 export const providers: UsageProvider[] = [claudeProvider];
 
 /** Why a poll is happening. Only `invalidation` is rate-limited. */
@@ -50,7 +50,7 @@ const INVALIDATION_GAP_MS = 5_000;
  * of the moment the stream started; claude.ai's accounting settles a beat
  * later. Polling immediately reads the pre-send figure and looks like the send
  * did not count. This delay is a placeholder until it is measured against live
- * traffic — see docs/verifying-the-protocol.md, step 8, which exists to replace
+ * traffic — see the protocol-verification notes, step 8, which exists to replace
  * this constant with an observation.
  */
 export const RECONCILE_DELAY_MS = 4_000;

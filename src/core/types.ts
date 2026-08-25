@@ -12,7 +12,7 @@
  *
  * This is deliberately separate from the percentage. A window can sit below
  * 100% and still be refusing sends, and when the two disagree the status is the
- * one that matches what the user is experiencing. See docs/protocol.md.
+ * one that matches what the user is experiencing. See the protocol notes.
  */
 export type LimitStatus =
   /** Accepting requests normally. */
@@ -160,7 +160,7 @@ export interface DailyRollup {
    * Messages per hour of the local day, 24 entries, index 0 = midnight.
    *
    * Kept because "peak hr" is on the panel and there is no other source for it
-   * — docs/protocol.md §"What the protocol does not give you" rules out
+   * — the protocol notes §"What the protocol does not give you" rules out
    * anything finer. Costs 24 small integers a day.
    */
   hourlyMessages: number[];
@@ -206,7 +206,7 @@ export type ThresholdState = 'ok' | 'warn' | 'crit' | 'unknown';
  * Boundaries between threshold states, in percent.
  *
  * The design archive does not specify these; it shows one warn instance at 82%,
- * which is consistent with the band below. See docs/design.md.
+ * which is consistent with the band below. See the design notes.
  */
 export const THRESHOLDS = {
   /** At or above this, a window is warning. */
@@ -231,7 +231,7 @@ export interface DisplayOptions {
  * the bot it governs was created by this user and talks to nobody but them,
  * they revoke it themselves in @BotFather, and anyone able to read this file
  * can already read the claude.ai session cookies beside it.
- * See docs/decisions/0009-per-user-bot-tokens.md, which supersedes ADR 0002 for
+ * See ADR 0009 (per-user bot tokens), which supersedes ADR 0002 for
  * alerts and explains why that record's reasoning did not survive the move to
  * per-user bots.
  */

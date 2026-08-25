@@ -55,7 +55,7 @@ export default defineManifest({
   // adds nothing to the install-time prompt, so a user who never sets up
   // Telegram is never asked for it and can revoke it in Chrome's own UI if they
   // do. Every relay call is blocked until it is granted, which is the intended
-  // default. See docs/decisions/0003-telegram-relay-design.md.
+  // default. See ADR 0003 (relay design).
   optional_host_permissions: [TELEGRAM_MATCH],
 
   action: {

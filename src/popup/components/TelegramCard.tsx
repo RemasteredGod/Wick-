@@ -15,7 +15,7 @@ interface TelegramCardProps {
  * extension storage is trivially extractable and a Telegram bot token is an
  * unscoped bearer credential the user cannot contain once it leaks. Wick holds
  * a revocable per-user relay token instead. See
- * docs/decisions/0002-telegram-relay-not-bot-token.md.
+ * ADR 0002 (relay, not a stored bot token).
  *
  * Status: M6 builds the relay and the connect flow. This renders the state.
  */
