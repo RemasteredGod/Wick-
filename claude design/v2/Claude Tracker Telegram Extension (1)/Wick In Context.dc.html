@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin:0; background:#141312; }
+  * { box-sizing:border-box; }
+  input { font-family:inherit; }
+  ::-webkit-scrollbar { width:6px; }
+  ::-webkit-scrollbar-thumb { background:#3a3835; border-radius:6px; }
+  a { color:#c9c4bb; }
+  a:hover { color:#f2efe9; }
+  @keyframes relaypulse { 0%,100% { opacity:.4; } 50% { opacity:1; } }
+</style>
+</helmet>
+
+<div style="height:100vh;width:100%;display:flex;background:#141312;color:#f2efe9;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;overflow:hidden;position:relative">
+
+  <div style="width:290px;flex:none;background:#191817;border-right:1px solid #232120;display:flex;flex-direction:column;padding:14px 12px 0">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 6px 14px">
+      <div style="font-size:19px;letter-spacing:-.01em;color:#e8e4dd;font-family:Georgia,serif">Assistant</div>
+      <div style="display:flex;gap:12px;color:#7d7871;font-size:13px">
+        <span>▤</span><span>⌕</span>
+      </div>
+    </div>
+
+    <div style="display:flex;background:#1f1e1c;border-radius:9px;padding:3px;margin-bottom:12px">
+      <div style="flex:1;text-align:center;padding:6px;border-radius:7px;background:#2b2926;font-size:13px">Home</div>
+      <div style="flex:1;text-align:center;padding:6px;border-radius:7px;font-size:13px;color:#8a857d">Code</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:1px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;background:#232120;font-size:13.5px">＋ New</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;font-size:13.5px;color:#c9c4bb">▢ Projects</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;font-size:13.5px;color:#c9c4bb">◈ Artifacts</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;font-size:13.5px;color:#c9c4bb">◷ Scheduled</div>
+    </div>
+
+    <div style="border-top:1px solid #232120;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+      <div onClick="{{ toggleExpanded }}" style="border-radius:10px;background:#1e1d1b;border:1px solid #2a2825;padding:9px 11px;display:flex;flex-direction:column;gap:9px;cursor:pointer" style-hover="border-color:#383530">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:7px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:4px;height:4px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:5px;height:13px;border-radius:3px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:18%;background:{{ accent }}"></div></div></div>
+            <div style="font-size:12px;color:#c9c4bb;letter-spacing:.02em">Wick</div>
+          </div>
+          <div style="font-size:10px;color:#6f6a63">{{ chevron }}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#8a857d"><span>Session</span><span style="font-family:ui-monospace,Menlo,monospace;color:#c9c4bb">68%</span></div>
+          <div style="height:3px;border-radius:3px;background:#302e2b;overflow:hidden"><div style="width:68%;height:100%;background:{{ accent }}"></div></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#8a857d"><span>Weekly</span><span style="font-family:ui-monospace,Menlo,monospace;color:#d99a2b">82%</span></div>
+          <div style="height:3px;border-radius:3px;background:#302e2b;overflow:hidden"><div style="width:82%;height:100%;background:#d99a2b"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 8px 6px">
+      <div style="font-size:12px;color:#7d7871">Projects</div>
+      <div style="font-size:13px;color:#7d7871">＋</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;background:#201f1d;font-size:13px;color:#c9c4bb">▢ open source</div>
+
+    <div style="font-size:12px;color:#7d7871;padding:16px 8px 6px">Chats and tasks</div>
+    <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:1px;padding-bottom:10px">
+      <sc-for list="{{ chats }}" as="c" hint-placeholder-count="8">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13px;color:#a4a09a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" style-hover="background:#1e1d1b">
+          <span style="color:#4d4944;font-size:9px">○</span>{{ c }}
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="flex:none;border-top:1px solid #232120;display:flex;align-items:center;gap:10px;padding:12px 8px">
+      <div style="width:24px;height:24px;border-radius:50%;background:#3a3833;display:flex;align-items:center;justify-content:center;font-size:11px;color:#d6d1c9">A</div>
+      <div style="font-size:13px;color:#c9c4bb">ash</div>
+      <div style="font-size:12px;color:#7d7871">· Pro</div>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;position:relative;padding:0 40px">
+    <div style="font-family:Georgia,serif;font-size:38px;letter-spacing:-.01em;color:#efeae2">Good afternoon, ash</div>
+    <div style="width:100%;max-width:760px;background:#1c1b19;border:1px solid #2b2926;border-radius:16px;padding:18px 20px 14px;display:flex;flex-direction:column;gap:22px">
+      <div style="font-size:15px;color:#7d7871">How can I help you today?</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:15px;color:#8a857d">＋</div>
+          <div style="display:flex;background:#232120;border-radius:8px;padding:3px">
+            <div style="padding:5px 12px;border-radius:6px;background:#302e2b;font-size:12.5px">Chat</div>
+            <div style="padding:5px 12px;border-radius:6px;font-size:12.5px;color:#8a857d">Cowork</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;font-size:12.5px;color:#8a857d">
+          <span style="color:#c9c4bb">Opus 5</span><span>Medium ⌄</span>
+        </div>
+      </div>
+    </div>
+    <div style="position:absolute;bottom:26px;font-size:11.5px;color:#57534d;font-family:ui-monospace,Menlo,monospace">wick · injected content script · no page requests intercepted</div>
+  </div>
+
+  <sc-if value="{{ expanded }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;left:302px;top:186px;bottom:auto;width:372px;max-height:calc(100vh - 202px);overflow-y:auto;overflow-x:hidden;background:#1e1d1b;border:1px solid #35322e;border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.65);z-index:20">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #2b2926">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:4px;height:4px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:5px;height:15px;border-radius:3px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:18%;background:{{ accent }}"></div></div></div>
+          <div style="font-size:14px">Wick</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:#b9b4ab;border:1px solid #3a3833;border-radius:999px;padding:3px 9px">Pro</div>
+          <div onClick="{{ closePanel }}" style="font-size:14px;color:#7d7871;cursor:pointer" style-hover="color:#e8e4dd">×</div>
+        </div>
+      </div>
+
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:15px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <div style="font-size:13px;color:#e8e4dd">Session · 5 hr</div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:13px">68%</div>
+          </div>
+          <div style="height:5px;border-radius:5px;background:#332f2b;overflow:hidden"><div style="width:68%;height:100%;background:{{ accent }}"></div></div>
+          <div style="font-size:11.5px;color:#8a857d">Resets in 1 hr 42 min</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <div style="font-size:13px;color:#e8e4dd">Weekly</div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#d99a2b">82%</div>
+          </div>
+          <div style="height:5px;border-radius:5px;background:#332f2b;overflow:hidden"><div style="width:82%;height:100%;background:#d99a2b"></div></div>
+          <div style="font-size:11.5px;color:#8a857d">Resets Thursday, 09:00</div>
+        </div>
+
+        <div style="border:1px solid #4a3a18;background:#2a2113;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.5;color:#e0b256;text-wrap:pretty">At your current pace you run out <strong style="color:#f2c877;font-weight:600">Tuesday evening</strong> — two days before reset.</div>
+
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:6px;height:44px">
+          <div style="flex:1;height:38%;border-radius:4px;background:#33312e"></div>
+          <div style="flex:1;height:52%;border-radius:4px;background:#33312e"></div>
+          <div style="flex:1;height:24%;border-radius:4px;background:#33312e"></div>
+          <div style="flex:1;height:66%;border-radius:4px;background:#33312e"></div>
+          <div style="flex:1;height:44%;border-radius:4px;background:#33312e"></div>
+          <div style="flex:1;height:74%;border-radius:4px;background:#3c3a36"></div>
+          <div style="flex:1;height:100%;border-radius:4px;background:{{ accent }}"></div>
+        </div>
+
+        <div style="height:1px;background:#2b2926"></div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="font-size:12.5px;color:#e8e4dd">Telegram alerts</div>
+            <div style="font-size:11px;color:#8a857d">Pings @jayant at 80% weekly</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:#6dcf8e"><span style="width:5px;height:5px;border-radius:50%;background:#6dcf8e"></span>Connected</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;padding:13px 18px;border-top:1px solid #2b2926">
+        <div style="flex:1;text-align:center;border:1px solid #3a3833;border-radius:9px;padding:8px;font-size:12.5px;color:#e8e4dd;cursor:pointer" style-hover="background:#272522">View history</div>
+        <div onClick="{{ openSettings }}" style="width:36px;display:flex;align-items:center;justify-content:center;border:1px solid #3a3833;border-radius:9px;cursor:pointer;font-size:12.5px;color:#b9b4ab" style-hover="background:#272522">⚙</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ settingsOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSettings }}" style="position:absolute;inset:0;background:rgba(10,9,8,.6);display:flex;align-items:center;justify-content:center;z-index:40">
+      <div style="width:420px;background:#1e1d1b;border:1px solid #35322e;border-radius:16px;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.7)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid #2b2926">
+          <div style="font-size:14px">Wick settings</div>
+          <div onClick="{{ closeSettings }}" style="font-size:15px;color:#8a857d;cursor:pointer">×</div>
+        </div>
+        <div style="padding:18px;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Telegram</div>
+            <input type="text" placeholder="Bot token from @BotFather" style="width:100%;background:#171614;border:1px solid #33312d;border-radius:9px;padding:10px 12px;font-size:12.5px;color:#e8e4dd;font-family:ui-monospace,Menlo,monospace;outline:none" style-focus="border-color:#4a4741">
+            <div style="display:flex;gap:7px">
+              <input type="text" placeholder="Chat ID" style="flex:1;background:#171614;border:1px solid #33312d;border-radius:9px;padding:10px 12px;font-size:12.5px;color:#e8e4dd;font-family:ui-monospace,Menlo,monospace;outline:none" style-focus="border-color:#4a4741">
+              <div style="border:1px solid #3a3833;border-radius:9px;padding:10px 14px;font-size:12.5px;cursor:pointer;white-space:nowrap" style-hover="background:#272522">Send test</div>
+            </div>
+            <div style="font-size:11px;color:#6f6a63;line-height:1.5">Kept in <span style="font-family:ui-monospace,Menlo,monospace">chrome.storage.local</span>; only ever sent to api.telegram.org.</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Alert me at</div>
+            <div style="display:flex;gap:7px">
+              <sc-for list="{{ thresholds }}" as="t" hint-placeholder-count="4">
+                <div onClick="{{ t.pick }}" style="flex:1;text-align:center;border:1px solid {{ t.bc }};border-radius:9px;padding:8px 0;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;cursor:pointer;background:{{ t.bg }};color:{{ t.fg }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:2px">
+              <div style="font-size:12.5px;color:#c9c4bb">Also ping on session reset</div>
+              <div onClick="{{ toggleReset }}" style="width:34px;height:19px;border-radius:999px;padding:2px;cursor:pointer;display:flex;background:{{ resetTrackBg }};justify-content:{{ resetAlign }};transition:all .18s ease">
+                <div style="width:15px;height:15px;border-radius:50%;background:#f2efe9"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#6f6a63">Sidebar</div>
+            <sc-for list="{{ displayOpts }}" as="d" hint-placeholder-count="4">
+              <div onClick="{{ d.toggle }}" style="display:flex;align-items:center;gap:9px;cursor:pointer">
+                <div style="width:15px;height:15px;border-radius:4px;border:1px solid {{ d.bc }};background:{{ d.bg }};display:flex;align-items:center;justify-content:center;font-size:10px;color:#141312">{{ d.mark }}</div>
+                <div style="font-size:12.5px;color:#c9c4bb">{{ d.label }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="height:1px;background:#2b2926"></div>
+          <div style="display:flex;gap:8px">
+            <a href="#" style="flex:1;text-align:center;text-decoration:none;border:1px solid #3a3833;border-radius:9px;padding:9px;font-size:12.5px" style-hover="background:#272522">Star on GitHub</a>
+            <a href="#" style="flex:1;text-align:center;text-decoration:none;border:1px solid #3f3129;background:#241d19;border-radius:9px;padding:9px;font-size:12.5px;color:#e6c3a8" style-hover="background:#2b221d">Support on Ko-fi</a>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #2b2926">
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#6f6a63">v0.1.0</div>
+          <div onClick="{{ closeSettings }}" style="background:{{ accent }};color:#171310;border-radius:9px;padding:8px 18px;font-size:12.5px;cursor:pointer">Save</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#c96442&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#c96442&quot;,&quot;#4d8ff0&quot;,&quot;#6dcf8e&quot;,&quot;#b78be0&quot;]}}">
+class Component extends DCLogic {
+  state = { expanded: true, settingsOpen: false, threshold: 80, onReset: true, display: { s: true, w: true, f: true, e: true } };
+  renderVals() {
+    const accent = this.props.accent ?? '#c96442';
+    const mk = (v) => ({
+      label: v + '%', pick: () => this.setState({ threshold: v }),
+      bg: this.state.threshold === v ? accent : 'transparent',
+      fg: this.state.threshold === v ? '#171310' : '#c9c4bb',
+      bc: this.state.threshold === v ? accent : '#33312d'
+    });
+    const dOpt = (key, label) => ({
+      label, toggle: () => this.setState(s => ({ display: { ...s.display, [key]: !s.display[key] } })),
+      mark: this.state.display[key] ? '✓' : '',
+      bg: this.state.display[key] ? accent : 'transparent',
+      bc: this.state.display[key] ? accent : '#4a4741'
+    });
+    return {
+      accent,
+      expanded: this.state.expanded,
+      settingsOpen: this.state.settingsOpen,
+      chevron: this.state.expanded ? '▾' : '▸',
+      toggleExpanded: () => this.setState(s => ({ expanded: !s.expanded })),
+      closePanel: (e) => { e.stopPropagation(); this.setState({ expanded: false }); },
+      openSettings: () => this.setState({ settingsOpen: true }),
+      closeSettings: () => this.setState({ settingsOpen: false }),
+      thresholds: [50, 80, 90, 95].map(mk),
+      toggleReset: () => this.setState(s => ({ onReset: !s.onReset })),
+      resetTrackBg: this.state.onReset ? accent : '#3a3833',
+      resetAlign: this.state.onReset ? 'flex-end' : 'flex-start',
+      displayOpts: [dOpt('s', 'Session bar'), dOpt('w', 'Weekly bar'), dOpt('f', 'Pace forecast'), dOpt('e', '7-day sparkline')],
+      chats: ['Municipality APIs feasibility', 'Manager changes mind about GC', 'Analysis request', 'Understanding major concepts', 'Analyzing all the ps', 'Weekly concepts in brutal mode', 'Flask vs FastAPI for backend', 'MAD 1 week 5 learning', 'Azure AI Foundry open model', 'Offline payment systems']
+    };
+  }
+}
+</script>
+</body>
+</html>

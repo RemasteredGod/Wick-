@@ -22,6 +22,7 @@
 import { isRuntimeMessage, type RelayConnectOutcome, type RuntimeResponse } from '~/core/messages';
 import { field, localDateKey } from '~/core/normalise';
 import { project } from '~/core/projection';
+import { allowanceWindow } from '~/core/windows';
 import type {
   AlertKind,
   AlertRecord,
@@ -30,9 +31,18 @@ import type {
   LimitWindow,
   Projection,
   Settings,
+  WindowRole,
 } from '~/core/types';
 import { connect, revoke, send, type RelayFailure } from './relay';
-import { KEYS, readAlerts, readHistory, readSettings, recordAlert, writeSettings } from './store';
+import {
+  KEYS,
+  readAccountId,
+  readAlerts,
+  readHistory,
+  readSettings,
+  recordAlert,
+  writeSettings,
+} from './store';
 
 /**
  * Icon for the local notification.
@@ -91,7 +101,9 @@ export async function evaluateSnapshotChange(
 
     const previous = readWindows(before);
     const settings = await readSettings();
-    const history = await readHistory();
+    // The signed-in account's own record. An alert about this week's pace must
+    // not be computed from another organisation's week.
+    const history = await readHistory(await readAccountId());
 
     const pending = [
       ...thresholdAlerts(next, settings, history, now),
@@ -226,29 +238,17 @@ function rolloverAlerts(
 /**
  * Which window the threshold applies to.
  *
- * Chosen structurally — the active window that resets furthest out — rather
- * than by matching a provider's key. `'7d'` is a claude.ai spelling, and
- * nothing outside `src/providers/` is allowed to know it. The longest cycle is
- * the weekly one for any provider that meters this way, and if a provider ever
- * ships two windows of the same length the tie falls to the one it listed last,
- * which is display order: session first, allowance second.
+ * The shared selector, so the alert is about the same window the panel is
+ * forecasting — two different answers to "which one is the weekly" is a bug
+ * report waiting to happen. It prefers the role the provider assigned and falls
+ * back to the structural test this used to do alone: the active window that
+ * resets furthest out is the weekly one for any provider that meters this way.
+ *
+ * Re-exported rather than inlined at the call sites because it is part of this
+ * module's tested surface.
  */
 export function weeklyWindow(windows: LimitWindow[]): LimitWindow | null {
-  const active = windows.filter((window) => window.active);
-  if (active.length === 0) return null;
-
-  let best: LimitWindow | null = null;
-  let bestAt = Number.NEGATIVE_INFINITY;
-
-  for (const window of active) {
-    if (window.resetsAt === null) continue;
-    if (window.resetsAt >= bestAt) {
-      best = window;
-      bestAt = window.resetsAt;
-    }
-  }
-
-  return best ?? active[active.length - 1] ?? null;
+  return allowanceWindow(windows);
 }
 
 /* ---- Copy ---------------------------------------------------------------- *
@@ -615,7 +615,17 @@ function asWindow(value: unknown): LimitWindow | null {
     // Absent means present: a window a provider forgot to flag should still be
     // considered, and the alternative is ignoring it forever.
     active: field(value, 'active') !== false,
+    // A window stored before roles existed has none. `'other'` keeps it out of
+    // the forecast and the threshold alert, and `weeklyWindow` falls back to
+    // picking structurally, which is what it did for all of them before.
+    role: asRole(field(value, 'role')),
   };
+}
+
+const ROLES = ['session', 'weekly', 'weekly-model', 'overage', 'other'] as const;
+
+function asRole(value: unknown): WindowRole {
+  return (ROLES as readonly string[]).includes(value as string) ? (value as WindowRole) : 'other';
 }
 
 function asStatus(value: unknown): LimitStatus {

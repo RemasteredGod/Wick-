@@ -22,7 +22,7 @@ import {
   normaliseUtilization,
   parseMaybeJson,
 } from '~/core/normalise';
-import type { LimitWindow } from '~/core/types';
+import type { LimitWindow, WindowRole } from '~/core/types';
 import type { UsageProvider, UsageResult } from './types';
 
 const ORIGIN = 'https://claude.ai';
@@ -115,14 +115,84 @@ const KEY_ALIASES: Record<string, string> = {
 /** Windows shown by default, in display order. Others are tracked but secondary. */
 export const PRIMARY_WINDOWS = ['5h', '7d'] as const;
 
+/** Prefix for a weekly window that is scoped to one model. */
+const SCOPED_WEEKLY_PREFIX = '7d:';
+
+/**
+ * Wire keys that mean "a weekly window, scoped to whatever model this entry
+ * names". The model itself arrives in a separate field, so these are only half
+ * a key on their own.
+ */
+const SCOPED_WEEKLY_KEYS = new Set(['7d_scoped', 'weekly_scoped', 'seven_day_scoped', '7d_model']);
+
 /** Fold a wire key onto the one Wick keys history with. */
 export function canonicalKey(key: string): string {
   const trimmed = key.trim();
   return KEY_ALIASES[trimmed.toLowerCase()] ?? trimmed;
 }
 
-function labelsFor(key: string): { label: string; short: string } {
-  return WINDOW_LABELS[key] ?? { label: key, short: key };
+/**
+ * The key for a weekly window scoped to one model.
+ *
+ * Opus folds onto `7d_oi` rather than getting a `7d:` key of its own, because
+ * the completion stream already reports that window under that name. Two
+ * spellings of one window means two half-histories that can never be merged,
+ * and history is append-only — so the fold has to happen here, before anything
+ * is written, or not at all.
+ */
+export function scopedWeeklyKey(scope: string): string {
+  const slug = scope.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  if (slug === '') return '7d';
+  if (slug.includes('opus')) return '7d_oi';
+  return `${SCOPED_WEEKLY_PREFIX}${slug}`;
+}
+
+/**
+ * What a window means, derived from its canonical key.
+ *
+ * Presentation and alerts select on this instead of on array position — see
+ * `src/core/windows.ts`. An unrecognised key is `'other'`: tracked and stored,
+ * but never promoted to the forecast, because Wick does not know what it is.
+ */
+export function roleFor(key: string): WindowRole {
+  if (key === '5h') return 'session';
+  if (key === '7d') return 'weekly';
+  if (key === '7d_oi' || key.startsWith(SCOPED_WEEKLY_PREFIX)) return 'weekly-model';
+  if (key === 'overage') return 'overage';
+  return 'other';
+}
+
+function labelsFor(key: string, scope: string | null): { label: string; short: string } {
+  const known = WINDOW_LABELS[key];
+  if (known) return known;
+
+  if (scope !== null && key.startsWith(SCOPED_WEEKLY_PREFIX)) {
+    const name = titleCase(scope);
+    return { label: `Weekly · ${name}`, short: name };
+  }
+
+  return { label: key, short: key };
+}
+
+function titleCase(value: string): string {
+  const cleaned = value.trim().replace(/[_-]+/g, ' ');
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+/**
+ * The model a scoped weekly window is about.
+ *
+ * `exclude` is the field the key itself came from: on an entry whose `scope`
+ * *is* the key, reading `scope` again as a model name would produce
+ * `7d:weekly_scoped`, which is a window that does not exist.
+ */
+function scopeOf(entry: unknown, exclude: string | null): string | null {
+  for (const name of ['model', 'model_family', 'model_name', 'scope', 'scope_name']) {
+    if (name === exclude) continue;
+    const value = field(entry, name);
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return null;
 }
 
 /**
@@ -133,20 +203,67 @@ function labelsFor(key: string): { label: string; short: string } {
  * rather than a zero.
  */
 export function windowFromLimitEntry(entry: unknown): LimitWindow | null {
-  const raw = field(entry, 'kind') ?? field(entry, 'group') ?? field(entry, 'scope');
-  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const from = ['kind', 'group', 'scope'].find((name) => {
+    const value = field(entry, name);
+    return typeof value === 'string' && value.trim() !== '';
+  });
+  if (from === undefined) return null;
 
-  const key = canonicalKey(raw);
-  const labels = labelsFor(key);
+  const raw = field(entry, from) as string;
+  return buildWindow(raw, entry, {
+    scopeExcluding: from,
+    utilization: normaliseUtilization(field(entry, 'percent'), 'percent'),
+    status: normaliseStatus(field(entry, 'severity')),
+    resetsAt: normaliseResetsAt(field(entry, 'resets_at')),
+    active: field(entry, 'is_active') !== false,
+  });
+}
+
+/**
+ * Assemble a window from a wire key, its entry, and the already-normalised
+ * numbers.
+ *
+ * Shared by both readers because the identity rules — canonical key, model
+ * scope, role, labels — are about what the window *is*, and that does not
+ * depend on which response it was read from. Only the number formats differ,
+ * and those are normalised before they get here.
+ */
+function buildWindow(
+  raw: string,
+  entry: unknown,
+  parts: {
+    scopeExcluding: string | null;
+    utilization: number | null;
+    status: LimitWindow['status'];
+    resetsAt: number | null;
+    active: boolean;
+  },
+): LimitWindow {
+  const canonical = canonicalKey(raw);
+  const scoped = SCOPED_WEEKLY_KEYS.has(canonical.toLowerCase());
+  const scope = scoped ? scopeOf(entry, parts.scopeExcluding) : null;
+
+  // A scoped weekly is only identified by key *and* model. Without folding the
+  // model in, two entries — Sonnet and Opus — collapse onto one key and become
+  // one window with two sets of numbers, which is worse than either.
+  //
+  // A scoped key that names no model at all falls back to the plain weekly:
+  // `weekly_scoped` is not a window name anything downstream would recognise,
+  // and an entry with nothing to scope by is, as far as Wick can tell, the
+  // weekly allowance.
+  const key = scoped ? scopedWeeklyKey(scope ?? '') : canonical;
+  const labels = labelsFor(key, scope);
 
   return {
     key,
     label: labels.label,
     shortLabel: labels.short,
-    utilization: normaliseUtilization(field(entry, 'percent'), 'percent'),
-    status: normaliseStatus(field(entry, 'severity')),
-    resetsAt: normaliseResetsAt(field(entry, 'resets_at')),
-    active: field(entry, 'is_active') !== false,
+    utilization: parts.utilization,
+    status: parts.status,
+    resetsAt: parts.resetsAt,
+    active: parts.active,
+    role: roleFor(key),
+    ...(scope === null ? {} : { scope }),
   };
 }
 
@@ -162,18 +279,15 @@ export function windowFromLimitEntry(entry: unknown): LimitWindow | null {
  * carried through unmodified so `thresholdState` can let it win.
  */
 export function windowFromStreamEntry(key: string, entry: unknown): LimitWindow {
-  const canonical = canonicalKey(key);
-  const labels = labelsFor(canonical);
-
-  return {
-    key: canonical,
-    label: labels.label,
-    shortLabel: labels.short,
+  return buildWindow(key, entry, {
+    // The map key is the window's name here, so no field of the entry is
+    // standing in for it and every scope field is genuinely a scope.
+    scopeExcluding: null,
     utilization: normaliseUtilization(field(entry, 'utilization'), 'fraction'),
     status: normaliseStatus(field(entry, 'status')),
     resetsAt: normaliseResetsAt(field(entry, 'resets_at')),
     active: field(entry, 'status') !== undefined,
-  };
+  });
 }
 
 /**
@@ -438,6 +552,32 @@ function orderedCandidates(): string[] {
 }
 
 /**
+ * How long one probe request is given before it is abandoned, in milliseconds.
+ *
+ * A `fetch` with no timeout can hang for as long as the network cares to, and
+ * an MV3 worker awaiting one is a worker that is not polling. Ten seconds is
+ * far longer than this endpoint has any business taking and far shorter than
+ * the shortest poll interval, so a hung request costs one reading, not the
+ * loop.
+ */
+export const USAGE_TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), USAGE_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      // The session cookie is the whole authentication story here.
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Fetch current limit state, probing until something answers.
  *
  * Rules of the probe, all of them chosen so a wrong guess degrades:
@@ -445,6 +585,9 @@ function orderedCandidates(): string[] {
  * - 404 means the path is wrong — try the next one;
  * - 401/403 means the credentials are the problem, not the path — stop, because
  *   probing further would just be four more rejections;
+ * - 429 and 5xx mean the server is there and unhappy. Stop: the path is not the
+ *   problem, and answering a rate limit with three more requests is how a
+ *   client earns a longer one;
  * - everything failing is `unavailable`, never a throw.
  */
 export async function fetchUsageResult(orgId: string): Promise<UsageResult> {
@@ -456,17 +599,17 @@ export async function fetchUsageResult(orgId: string): Promise<UsageResult> {
 
     let response: Response;
     try {
-      response = await fetch(url, {
-        // The session cookie is the whole authentication story here.
-        credentials: 'include',
-        headers: { accept: 'application/json' },
-      });
+      response = await fetchWithTimeout(url);
     } catch (error) {
       lastFailure = errorMessage(error);
       continue;
     }
 
     if (response.status === 401 || response.status === 403) return { kind: 'signed-out' };
+
+    if (response.status === 429 || response.status >= 500) {
+      return { kind: 'unavailable', message: `HTTP ${response.status}` };
+    }
 
     if (!response.ok) {
       lastFailure = `HTTP ${response.status}`;

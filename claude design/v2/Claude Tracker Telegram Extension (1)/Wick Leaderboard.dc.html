@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin:0; background:#141312; }
+  * { box-sizing:border-box; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#3a3835; border-radius:8px; }
+  a { color:#c9c4bb; }
+  a:hover { color:#f2efe9; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:#141312;color:#f2efe9;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;justify-content:center;padding:44px 32px 90px">
+<div style="width:100%;max-width:1000px;display:flex;flex-direction:column;gap:28px">
+
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:4px;height:4px;background:#e8a33d;border-radius:50% 50% 50% 0;transform:rotate(45deg)"></div><div style="width:5px;height:15px;border-radius:3px;background:#332f2b;display:flex;align-items:flex-end;overflow:hidden"><div style="width:100%;height:18%;background:{{ accent }}"></div></div></div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8a857d">Wick · opt-in leaderboard</div>
+      </div>
+      <div style="font-family:Georgia,serif;font-size:34px;line-height:1.1;letter-spacing:-.01em;color:#efeae2">Who's burning fastest</div>
+      <div style="font-size:13.5px;line-height:1.6;color:#8a857d;max-width:520px;text-wrap:pretty">Only counts what your own extension measured. Handles are self-chosen, totals are rounded, and leaving takes one click.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-end">
+      <div style="display:flex;background:#1c1b19;border:1px solid #2b2926;border-radius:9px;padding:3px">
+        <sc-for list="{{ ranges }}" as="r" hint-placeholder-count="3">
+          <div onClick="{{ r.pick }}" style="padding:6px 14px;border-radius:7px;font-size:12.5px;cursor:pointer;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;background:#1c1b19;border:1px solid #2b2926;border-radius:9px;padding:3px">
+        <sc-for list="{{ scopes }}" as="s" hint-placeholder-count="2">
+          <div onClick="{{ s.pick }}" style="padding:6px 14px;border-radius:7px;font-size:12.5px;cursor:pointer;background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px">
+    <div style="border:1px solid #2f2d2a;background:#1a1917;border-radius:13px;padding:15px 17px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:11.5px;letter-spacing:.03em;color:#8a857d">Your standing</div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:30px;line-height:1;color:{{ accent }}">{{ myRank }}</div>
+        <div style="font-size:12.5px;color:#8a857d;padding-bottom:3px">of {{ total }} · {{ myDeltaText }}</div>
+      </div>
+      <div style="height:4px;border-radius:4px;background:#302e2b;overflow:hidden"><div style="width:{{ myFillPct }};height:100%;background:{{ accent }}"></div></div>
+      <div style="font-size:11.5px;color:#6f6a63">{{ myStandingLine }}</div>
+    </div>
+    <div style="border:1px solid #2f2d2a;background:#1a1917;border-radius:13px;padding:15px 17px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:11.5px;letter-spacing:.03em;color:#8a857d">Your {{ rangeWord }}</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;line-height:1">{{ myCount }}</div>
+      <div style="font-size:11.5px;color:#6f6a63">messages · pace {{ myPace }}/day</div>
+    </div>
+    <div style="border:1px solid #2f2d2a;background:#1a1917;border-radius:13px;padding:15px 17px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:11.5px;letter-spacing:.03em;color:#8a857d">Longest streak</div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;line-height:1">{{ myStreak }}</div>
+      <div style="font-size:11.5px;color:#6f6a63">days without hitting a wall</div>
+    </div>
+  </div>
+
+  <div style="border:1px solid #2b2926;background:#1a1917;border-radius:14px;overflow:hidden">
+    <div style="display:grid;grid-template-columns:52px 1fr 84px 96px 190px 92px;gap:14px;align-items:center;padding:11px 18px;border-bottom:1px solid #262421;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#6f6a63">
+      <div>Rank</div>
+      <div>Handle</div>
+      <div>Plan</div>
+      <div>Streak</div>
+      <div>Volume</div>
+      <div style="text-align:right">Messages</div>
+    </div>
+
+    <sc-for list="{{ rows }}" as="row" hint-placeholder-count="10">
+      <div style="display:grid;grid-template-columns:52px 1fr 84px 96px 190px 92px;gap:14px;align-items:center;padding:{{ row.pad }} 18px;border-bottom:1px solid #211f1e;background:{{ row.rowBg }}" style-hover="background:#201f1d">
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:13.5px;color:{{ row.rankColor }}">{{ row.rank }}</div>
+          <div style="font-size:9px;color:{{ row.deltaColor }};font-family:ui-monospace,Menlo,monospace">{{ row.delta }}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <div style="width:24px;height:24px;flex:none;border-radius:50%;background:{{ row.avBg }};display:flex;align-items:center;justify-content:center;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:{{ row.avFg }}">{{ row.initial }}</div>
+          <div style="flex:1;min-width:0;font-size:13.5px;color:{{ row.nameColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.handle }}</div>
+          <div style="font-size:10px;font-family:ui-monospace,Menlo,monospace;color:{{ accent }};white-space:nowrap">{{ row.youTag }}</div>
+        </div>
+        <div style="font-size:11.5px;color:#8a857d">{{ row.plan }}</div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#a4a09a">{{ row.streak }}</div>
+        <div style="height:5px;border-radius:5px;background:#2b2926;overflow:hidden"><div style="width:{{ row.barW }};height:100%;background:{{ row.barBg }}"></div></div>
+        <div style="text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:{{ row.valColor }}">{{ row.count }}</div>
+      </div>
+    </sc-for>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px">
+      <div style="font-size:11.5px;color:#6f6a63;font-family:ui-monospace,Menlo,monospace">updated 4 min ago · {{ total }} participants</div>
+      <sc-if value="{{ showMore }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1px solid #3a3833;border-radius:9px;padding:7px 14px;font-size:12.5px;color:#e8e4dd;cursor:pointer" style-hover="background:#272522">Show 40 more</div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:280px;border:1px solid #2f2d2a;border-radius:13px;padding:15px 17px;display:flex;flex-direction:column;gap:7px">
+      <div style="font-size:13.5px;color:#e8e4dd">What gets shared</div>
+      <div style="font-size:12px;line-height:1.6;color:#8a857d;text-wrap:pretty">Message counts, streak length and plan tier — nothing about conversations. Handle and plan are the only identifying fields, both editable.</div>
+    </div>
+    <div style="flex:1;min-width:280px;border:1px solid #2f2d2a;border-radius:13px;padding:15px 17px;display:flex;flex-direction:column;gap:9px">
+      <div style="font-size:13.5px;color:#e8e4dd">You're in as <span style="font-family:ui-monospace,Menlo,monospace;color:{{ accent }}">@ash</span></div>
+      <div style="display:flex;gap:8px">
+        <div onClick="{{ toggleOptIn }}" style="border:1px solid #3a3833;border-radius:9px;padding:7px 13px;font-size:12.5px;color:#c9c4bb;cursor:pointer" style-hover="background:#272522">{{ optInLabel }}</div>
+        <div style="border:1px solid #3a3833;border-radius:9px;padding:7px 13px;font-size:12.5px;color:#c9c4bb;cursor:pointer" style-hover="background:#272522">Change handle</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#c96442&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#c96442&quot;,&quot;#4d8ff0&quot;,&quot;#6dcf8e&quot;,&quot;#b78be0&quot;]},&quot;anonymize&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Privacy&quot;}}">
+class Component extends DCLogic {
+  state = { range: 'week', scope: 'global', optedIn: true };
+
+  data() {
+    const base = [
+      { h: 'kernelpanic', plan: 'Max 20×', s: 61, w: 412, m: 1580, a: 9100 },
+      { h: 'tomo.build', plan: 'Max 20×', s: 44, w: 388, m: 1490, a: 8720 },
+      { h: 'nine_lives', plan: 'Max 5×', s: 27, w: 341, m: 1302, a: 6400 },
+      { h: 'dr_regex', plan: 'Max 5×', s: 18, w: 318, m: 1188, a: 5980 },
+      { h: 'silt', plan: 'Max 5×', s: 33, w: 296, m: 1104, a: 5510 },
+      { h: 'mireille', plan: 'Max 5×', s: 12, w: 271, m: 998, a: 4870 },
+      { h: 'grep_goblin', plan: 'Pro', s: 40, w: 244, m: 921, a: 4402 },
+      { h: 'hexadecimate', plan: 'Max 5×', s: 8, w: 233, m: 880, a: 4180 },
+      { h: 'yuki.ships', plan: 'Pro', s: 21, w: 219, m: 812, a: 3960 },
+      { h: 'ash', plan: 'Pro', s: 14, w: 196, m: 744, a: 3410, me: true },
+      { h: 'bramble', plan: 'Pro', s: 6, w: 181, m: 690, a: 3120 },
+      { h: 'oat_milk_dev', plan: 'Pro', s: 29, w: 164, m: 631, a: 2870 }
+    ];
+    const key = this.state.range === 'week' ? 'w' : this.state.range === 'month' ? 'm' : 'a';
+    let list = base.map(r => ({ ...r, v: r[key] }));
+    if (this.state.scope === 'friends') list = list.filter(r => r.me || ['tomo.build', 'silt', 'bramble', 'yuki.ships', 'grep_goblin'].includes(r.h));
+    return list.sort((a, b) => b.v - a.v);
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? '#c96442';
+    const anon = this.props.anonymize ?? false;
+    const list = this.data();
+    const top = list[0].v;
+    const meIdx = list.findIndex(r => r.me);
+    const me = list[meIdx];
+    const deltas = { kernelpanic: '▲2', 'tomo.build': '▼1', nine_lives: '—', dr_regex: '▲4', silt: '▼2', mireille: '▲1', grep_goblin: '—', hexadecimate: '▼3', 'yuki.ships': '▲2', ash: '▲3', bramble: '▼1', oat_milk_dev: '—' };
+    const rangeWord = this.state.range === 'week' ? 'week' : this.state.range === 'month' ? 'month' : 'all time';
+
+    const pick = (k, v, label) => ({
+      label, pick: () => this.setState({ [k]: v }),
+      bg: this.state[k] === v ? '#2b2926' : 'transparent',
+      fg: this.state[k] === v ? '#f2efe9' : '#8a857d'
+    });
+
+    const rows = list.map((r, i) => {
+      const d = deltas[r.h] || '—';
+      const handle = anon && !r.me ? 'user ' + String(1000 + i * 37).slice(0, 4) : '@' + r.h;
+      return {
+        rank: String(i + 1).padStart(2, '0'),
+        rankColor: r.me ? accent : i < 3 ? '#e8e4dd' : '#8a857d',
+        delta: d,
+        deltaColor: d[0] === '▲' ? '#6dcf8e' : d[0] === '▼' ? '#b8654a' : '#4d4944',
+        handle,
+        initial: handle.replace('@', '')[0].toUpperCase(),
+        avBg: r.me ? accent : '#2e2c29',
+        avFg: r.me ? '#171310' : '#a4a09a',
+        nameColor: r.me ? '#f2efe9' : '#d6d1c9',
+        youTag: r.me ? 'YOU' : '',
+        plan: r.plan,
+        streak: r.s + 'd',
+        count: r.v.toLocaleString(),
+        valColor: r.me ? '#f2efe9' : '#c9c4bb',
+        barW: Math.round((r.v / top) * 100) + '%',
+        barBg: r.me ? accent : i < 3 ? '#5c5751' : '#3c3a36',
+        rowBg: r.me ? 'rgba(201,100,66,.09)' : 'transparent',
+        pad: r.me ? '13px' : '11px'
+      };
+    });
+
+    const friends = this.state.scope === 'friends';
+    const totalNum = friends ? list.length : 2841;
+    const pctTop = Math.max(1, Math.round(((meIdx + 1) / totalNum) * 100));
+    const aheadOf = Math.round(((totalNum - (meIdx + 1)) / totalNum) * 100);
+
+    return {
+      accent, rows, rangeWord,
+      myPct: pctTop + '%',
+      myFillPct: aheadOf + '%',
+      myStandingLine: friends
+        ? 'Ahead of ' + aheadOf + '% of your friends this ' + rangeWord + '.'
+        : 'Top ' + pctTop + '% of everyone opted in this ' + rangeWord + '.',
+      showMore: rows.length < totalNum,
+      ranges: [pick('range', 'week', 'This week'), pick('range', 'month', 'Month'), pick('range', 'all', 'All time')],
+      scopes: [pick('scope', 'global', 'Everyone'), pick('scope', 'friends', 'Friends')],
+      total: totalNum.toLocaleString(),
+      myRank: '#' + (meIdx + 1),
+      myDeltaText: 'up 3 since Monday',
+      myCount: me.v.toLocaleString(),
+      myPace: Math.round(me.v / (this.state.range === 'week' ? 7 : this.state.range === 'month' ? 30 : 120)),
+      myStreak: me.s + ' days',
+      optInLabel: this.state.optedIn ? 'Leave leaderboard' : 'Join leaderboard',
+      toggleOptIn: () => this.setState(s => ({ optedIn: !s.optedIn }))
+    };
+  }
+}
+</script>
+</body>
+</html>

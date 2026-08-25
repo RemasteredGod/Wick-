@@ -5,13 +5,14 @@ import { ALERT_THRESHOLD_CHOICES, type DisplayOptions, type Settings } from '~/c
 /**
  * Where the Project links point.
  *
- * The repository URL is the project's own remote. The Ko-fi handle is still the
- * archive's (ext:222) and is a guess — fix it before release; nothing else here
- * depends on it.
+ * Both the repository URL and the Ko-fi handle are the project's own. The
+ * handle is displayed as well as linked (the archive's row shows it under the
+ * label, ext:222), so it is written once here rather than twice in the markup.
  */
 const REPO_URL = 'https://github.com/RemasteredGod/Wick-';
 const ISSUES_URL = `${REPO_URL}/issues`;
-const KOFI_HANDLE = 'ko-fi.com/jayant';
+const LEADERBOARD_URL = 'https://usewick.lol';
+const KOFI_HANDLE = 'ko-fi.com/remasteredgod';
 const KOFI_URL = `https://${KOFI_HANDLE}`;
 
 /**
@@ -278,6 +279,14 @@ export function Settings({
             </a>
             <a class="wick-settings__link" href={ISSUES_URL} target="_blank" rel="noreferrer">
               Report an issue
+            </a>
+            <a
+              class="wick-settings__link"
+              href={LEADERBOARD_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View leaderboard
             </a>
           </div>
 

@@ -53,15 +53,30 @@ function limitWindow(patch: Partial<LimitWindow> & { key: string }): LimitWindow
     status: 'ok',
     resetsAt: null,
     active: true,
+    role: 'other',
     ...patch,
   };
 }
 
 const session = (utilization: number, resetsAt: number) =>
-  limitWindow({ key: '5h', label: 'Session · 5 hr', shortLabel: 'Session', utilization, resetsAt });
+  limitWindow({
+    key: '5h',
+    label: 'Session · 5 hr',
+    shortLabel: 'Session',
+    role: 'session',
+    utilization,
+    resetsAt,
+  });
 
 const weekly = (utilization: number, resetsAt: number) =>
-  limitWindow({ key: '7d', label: 'Weekly', shortLabel: 'Weekly', utilization, resetsAt });
+  limitWindow({
+    key: '7d',
+    label: 'Weekly',
+    shortLabel: 'Weekly',
+    role: 'weekly',
+    utilization,
+    resetsAt,
+  });
 
 function snapshot(windows: LimitWindow[]): unknown {
   return { providerId: 'claude', windows, fetchedAt: NOW, source: 'usage' };

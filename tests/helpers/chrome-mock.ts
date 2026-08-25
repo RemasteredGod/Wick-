@@ -39,9 +39,26 @@ export interface StorageChange {
   newValue?: unknown;
 }
 
+/**
+ * A host match pattern, as loosely as `chrome.tabs.query` needs it here.
+ *
+ * Every character that means something to a regular expression is escaped
+ * except `*`, which is then the only wildcard — which is exactly what a match
+ * pattern is.
+ */
+function matchesPattern(pattern: string, url: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`).test(url);
+}
+
 export interface FakeChrome {
   /** Everything currently in `chrome.storage.local`. */
   store: Map<string, unknown>;
+  /**
+   * Tabs the browser is showing. Push one to make `chrome.tabs.query` find it —
+   * which is how the collector decides whether anyone is watching.
+   */
+  tabs: { url: string }[];
   /** Cookies keyed by name, as `chrome.cookies.get` would return them. */
   cookies: Map<string, string>;
   /** Every `chrome.action.setIcon` call, in order. */
@@ -67,6 +84,7 @@ export interface FakeChrome {
  */
 export function installChromeMock(): FakeChrome {
   const store = new Map<string, unknown>();
+  const tabs: { url: string }[] = [];
   const cookies = new Map<string, string>();
   const iconCalls: unknown[] = [];
   const notifications: unknown[] = [];
@@ -165,7 +183,13 @@ export function installChromeMock(): FakeChrome {
       onCompleted: onCompleted.event,
     },
     tabs: {
-      query: () => Promise.resolve([]),
+      query: ({ url }: { url?: string | string[] } = {}) => {
+        const patterns = url === undefined ? null : Array.isArray(url) ? url : [url];
+        if (patterns === null) return Promise.resolve([...tabs]);
+        return Promise.resolve(
+          tabs.filter((tab) => patterns.some((one) => matchesPattern(one, tab.url))),
+        );
+      },
       sendMessage: () => Promise.resolve(undefined),
     },
   };
@@ -176,6 +200,7 @@ export function installChromeMock(): FakeChrome {
 
   return {
     store,
+    tabs,
     cookies,
     iconCalls,
     notifications,
@@ -202,6 +227,7 @@ export function installChromeMock(): FakeChrome {
     reset() {
       store.clear();
       cookies.clear();
+      tabs.length = 0;
       iconCalls.length = 0;
       notifications.length = 0;
       alarms.clear();

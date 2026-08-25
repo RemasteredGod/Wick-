@@ -31,8 +31,15 @@ export const INJECT_SOURCE = 'wick-inject' as const;
 export type InjectMessage =
   /** A `message_limit` event was seen on a completion stream. */
   | { source: typeof INJECT_SOURCE; kind: 'limits'; event: unknown; at: number }
-  /** A completion was started. Used for the daily message count. */
-  | { source: typeof INJECT_SOURCE; kind: 'message-sent'; at: number }
+  /**
+   * A completion was *accepted* — the server answered a send with a stream.
+   *
+   * Not "a request was made": a refused send and a failed one are neither of
+   * them a message, and counting them inflates the only number on the panel
+   * that claims to be a count of what the user did. `id` identifies the
+   * request, so the same accepted completion observed twice is counted once.
+   */
+  | { source: typeof INJECT_SOURCE; kind: 'message-sent'; at: number; id: string }
   /** A send was refused for hitting a limit. Body is the refusal payload. */
   | { source: typeof INJECT_SOURCE; kind: 'refused'; body: unknown; at: number };
 
@@ -50,14 +57,34 @@ export function isInjectMessage(value: unknown): value is InjectMessage {
 
 export type RuntimeMessage =
   /**
-   * Limit state read off a stream. Optimistic: it lands a second or two before
-   * a fetch would, and the next authoritative fetch overrides it
-   * unconditionally.
+   * Limit state read off the wire. Optimistic: it lands a second or two before
+   * a fetch would, and the authoritative fetch that follows takes precedence
+   * per window.
+   *
+   * `source` distinguishes the two ways this happens. A refusal is a stronger
+   * statement than a stream event — the server has just declined to do the work
+   * — and `SnapshotSource` has always had a name for it. The bridge used to
+   * report both as `stream`, which made the distinction unusable.
    */
-  | { type: 'wick:stream-limits'; windows: LimitWindow[]; at: number }
-  | { type: 'wick:message-sent'; at: number }
+  | {
+      type: 'wick:stream-limits';
+      windows: LimitWindow[];
+      at: number;
+      source: 'stream' | 'rejection';
+    }
+  /** A completion the server accepted. `id` is per request, for de-duplication. */
+  | { type: 'wick:message-sent'; at: number; id: string }
   /** Poll now. Sent when the popup opens, so it never shows a stale number. */
   | { type: 'wick:refresh' }
+  /**
+   * A provider tab has appeared.
+   *
+   * The poll cadence follows attention, and the worker cannot watch tabs open
+   * without the `tabs` permission. The content script already runs on that
+   * page, so it says so itself: no permission, and no polling for a tab that is
+   * not there.
+   */
+  | { type: 'wick:tab-open' }
   | { type: 'wick:get-state' }
   /**
    * Redeem a connect code for a relay token.
@@ -103,6 +130,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:stream-limits' ||
     type === 'wick:message-sent' ||
     type === 'wick:refresh' ||
+    type === 'wick:tab-open' ||
     type === 'wick:get-state' ||
     type === 'wick:relay-connect' ||
     type === 'wick:relay-disconnect'

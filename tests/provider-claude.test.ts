@@ -8,7 +8,7 @@
  * whether or not the document turns out to be right.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   canonicalKey,
   fetchUsageResult,
@@ -17,9 +17,13 @@ import {
   limitWindowsFromRefusal,
   parseSseChunk,
   resetUsagePathMemo,
+  roleFor,
+  scopedWeeklyKey,
   USAGE_PATH_CANDIDATES,
+  USAGE_TIMEOUT_MS,
   windowFromLimitEntry,
 } from '~/providers/claude';
+import { usagePaid, usageScoped } from './fixtures/claude';
 
 /* ---- Fixtures ------------------------------------------------------------ */
 
@@ -202,6 +206,7 @@ describe('windowFromLimitEntry', () => {
       status: 'ok',
       resetsAt: Date.parse('2026-08-27T09:00:00Z'),
       active: true,
+      role: 'session',
     });
   });
 
@@ -227,6 +232,68 @@ describe('windowFromLimitEntry', () => {
       expect(windowFromLimitEntry(entry)).toBeNull();
     },
   );
+});
+
+describe('scoped weekly windows', () => {
+  /**
+   * The failure this section exists for: two entries that both say
+   * `weekly_scoped` and differ only by model. Keyed on the wire name alone they
+   * collapse onto one window — one storage key, one React key, one history, and
+   * whichever entry the loop saw last silently winning.
+   */
+  it('gives two models scoped to the same wire key distinct windows', () => {
+    const windows = usageScoped.limits.map(windowFromLimitEntry);
+    const keys = windows.map((window) => window?.key);
+
+    expect(new Set(keys).size).toBe(2);
+    expect(keys).toContain('7d:claude_sonnet_4_5');
+  });
+
+  it('folds an Opus weekly onto the key the completion stream already uses', () => {
+    // Two spellings of one window means two half-histories, and history is
+    // append-only, so the fold has to happen before anything is written.
+    const opus = windowFromLimitEntry({ kind: 'weekly_scoped', model: 'claude-opus-4-6', percent: 91 });
+
+    expect(opus?.key).toBe('7d_oi');
+    expect(scopedWeeklyKey('claude-opus-4-6')).toBe('7d_oi');
+  });
+
+  it('labels a scoped window with the model it is about', () => {
+    const sonnet = windowFromLimitEntry({ kind: 'weekly_scoped', model: 'sonnet', percent: 10 });
+
+    expect(sonnet?.label).toBe('Weekly · Sonnet');
+    expect(sonnet?.scope).toBe('sonnet');
+  });
+
+  it('does not read the field that supplied the key as a model name', () => {
+    // `scope` stands in for `kind` on an entry that has no `kind`. Reading it
+    // twice would invent a window called `7d:weekly_scoped`.
+    const window = windowFromLimitEntry({ scope: 'weekly_scoped', percent: 10 });
+
+    expect(window?.key).toBe('7d');
+  });
+});
+
+describe('roleFor', () => {
+  it('classifies the windows the panel selects on', () => {
+    expect(roleFor('5h')).toBe('session');
+    expect(roleFor('7d')).toBe('weekly');
+    expect(roleFor('7d_oi')).toBe('weekly-model');
+    expect(roleFor('7d:sonnet')).toBe('weekly-model');
+    expect(roleFor('overage')).toBe('overage');
+  });
+
+  it('calls a window it has never seen other, rather than guessing', () => {
+    // 'other' keeps it out of the forecast and the threshold alert while still
+    // tracking it. A wrong guess would put an unknown window on the panel as
+    // though Wick understood it.
+    expect(roleFor('30d_experimental')).toBe('other');
+  });
+
+  it('reads a role onto every window of a paid-plan response', () => {
+    const roles = usagePaid.limits.map((entry) => windowFromLimitEntry(entry)?.role);
+    expect(roles).toEqual(['session', 'weekly', 'weekly-model']);
+  });
 });
 
 describe('canonicalKey', () => {
@@ -405,6 +472,48 @@ describe('fetchUsageResult', () => {
 
     expect(result.kind).toBe('ok');
     expect(requested.at(-1)).toContain('/limits');
+  });
+
+  it('stops probing when the server is rate limiting, rather than asking three more times', async () => {
+    stubFetch(() => new Response('', { status: 429 }));
+
+    const result = await fetchUsageResult('org-1');
+
+    expect(result).toEqual({ kind: 'unavailable', message: 'HTTP 429' });
+    expect(requested).toHaveLength(1);
+  });
+
+  it('stops probing on a server error', async () => {
+    // A 500 says the path is fine and the server is not. Walking the remaining
+    // candidates would be three more requests for the same answer.
+    stubFetch(() => new Response('', { status: 503 }));
+
+    const result = await fetchUsageResult('org-1');
+
+    expect(result).toEqual({ kind: 'unavailable', message: 'HTTP 503' });
+    expect(requested).toHaveLength(1);
+  });
+
+  it('gives up on a request that never answers, without throwing', async () => {
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        // Never settles on its own: only the abort signal ends it, which is the
+        // property under test. A worker awaiting a hung fetch is a worker that
+        // has stopped polling.
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as typeof fetch;
+
+    vi.useFakeTimers();
+    try {
+      const pending = fetchUsageResult('org-1');
+      // Every candidate has to time out before the probe gives up, so the clock
+      // is pushed past all of them rather than past one.
+      await vi.advanceTimersByTimeAsync(USAGE_TIMEOUT_MS * (USAGE_PATH_CANDIDATES.length + 1));
+
+      await expect(pending).resolves.toMatchObject({ kind: 'unavailable' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stops probing the moment the credentials are refused', async () => {

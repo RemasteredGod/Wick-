@@ -21,6 +21,11 @@ cannot be backfilled.
 **Telegram alerts.** Threshold crossings pushed to your phone, so you never have
 to open the popup to find out you are nearly out.
 
+**Optional Claude Code leaderboard.** The separate `wick-cc` reporter reads only
+first-party usage counters from local Claude Code transcripts, aggregates them
+on the machine, and can publish daily totals to a public, self-reported board.
+It is off until the user explicitly opts in.
+
 The toolbar icon is a gauge, not a logo. It depletes and changes colour as you
 consume quota, so status is readable without clicking.
 
@@ -28,8 +33,12 @@ consume quota, so status is readable without clicking.
 
 Wick does not estimate tokens. It has no tokenizer and no table of per-feature
 costs. claude.ai's server already computes a percentage per limit window, and
-Wick reads that number. This makes it both simpler and more accurate than
-estimating. See [`docs/decisions/0001-no-token-estimation.md`](docs/decisions/0001-no-token-estimation.md).
+the extension reads that number. The separate `wick-cc` reporter likewise uses
+only token counts already written by Claude Code's API; it never estimates a
+missing count. See
+[`docs/decisions/0001-no-token-estimation.md`](docs/decisions/0001-no-token-estimation.md)
+and
+[`docs/decisions/0005-claude-code-token-counts.md`](docs/decisions/0005-claude-code-token-counts.md).
 
 ## Status
 
@@ -37,11 +46,13 @@ Early, but no longer a shell. The extension builds, loads, collects, projects
 and draws its own toolbar gauge, and every number on screen comes from
 `chrome.storage.local` rather than from a placeholder.
 
-Two things are outstanding, and both need something this repository cannot
-supply on its own: the protocol has not been checked against live traffic, and
-the Telegram relay service is designed but not deployed. Until the first is
-done, treat every reading as provisional — `docs/protocol.md` is a hypothesis
-about undocumented behaviour, and it says so on its first line.
+Two things still require operator or account access outside this repository: the
+protocol has not been checked against live traffic, and the Cloudflare relay has
+not been deployed. The relay, D1 schema, bot commands, public page, digest, and
+standalone reporter are implemented in their sibling projects. Until live
+protocol verification is done, treat extension readings as provisional —
+`docs/protocol.md` is a hypothesis about undocumented behaviour, and it says so
+on its first line.
 
 | Milestone | |
 |---|---|
@@ -50,7 +61,8 @@ about undocumented behaviour, and it says so on its first line.
 | M3 | Real data — collector, store, polling — done |
 | M4 | Daily history and the projection engine — done |
 | M5 | Toolbar gauge rendering — done |
-| M6 | Telegram relay — extension side done; the relay service itself is designed but not deployed |
+| M6 | Telegram relay — extension and Worker implemented at `relay.usewick.lol`; deployment outstanding |
+| M7 | Claude Code reporter and self-reported leaderboard — implemented; deployment and package publication outstanding |
 
 Gemini and ChatGPT support, and cross-model conversation handoff, are on the
 roadmap beyond v1. They are not being built now.
@@ -103,8 +115,10 @@ without it.
 
 ## Privacy
 
-Nothing leaves your machine except alerts you explicitly configure. No
-analytics, no telemetry, no crash reporting. See [`PRIVACY.md`](PRIVACY.md).
+Browser usage stays local by default. Telegram alerts and aggregate Claude Code
+leaderboard submissions leave the machine only after their separate, explicit
+setup and opt-in steps. No analytics, telemetry, or crash reporting. See
+[`PRIVACY.md`](PRIVACY.md).
 
 ## Architecture
 

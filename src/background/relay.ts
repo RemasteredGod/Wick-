@@ -30,13 +30,12 @@ import { readSettings } from './store';
 import type { AlertKind } from '~/core/types';
 
 /**
- * The relay's origin. One constant, one place to change it.
+ * The relay's registered API origin.
  *
- * **Placeholder.** No domain is registered and no service is deployed. Whatever
- * this becomes has to match the `host_permissions` entry exactly, or every call
- * fails with an opaque network error.
+ * Keep this identical to the optional host permission in `src/manifest.ts`, or
+ * every call fails with an opaque network error.
  */
-export const RELAY_ORIGIN = 'https://relay.wick.tools';
+export const RELAY_ORIGIN = 'https://relay.usewick.lol';
 
 /**
  * The same origin as a match pattern, for `chrome.permissions`.

@@ -3,6 +3,7 @@ import { remainingFor } from '~/assets/mark';
 import { averageMessagesPerDay, messagesToday, peakHour } from '~/core/history';
 import { thresholdState } from '~/core/normalise';
 import { project } from '~/core/projection';
+import { allowanceWindow } from '~/core/windows';
 import type { CollectorStatus, LimitWindow } from '~/core/types';
 import { GearIcon } from './components/GearIcon';
 import { HistoryStrip } from './components/HistoryStrip';
@@ -52,9 +53,10 @@ export function App() {
   }
 
   const windows = state.snapshot?.windows ?? [];
-  // The weekly window is the one the forecast is about, and the one the history
-  // strip plots. Second in the provider's order, as the archive lays it out.
-  const weekly = windows[1] ?? windows[0];
+  // The allowance window is the one the forecast is about, and the one the
+  // history strip plots. Chosen by what it means, not by where the provider
+  // happened to list it — see src/core/windows.ts.
+  const weekly = allowanceWindow(windows) ?? undefined;
   const remaining = remainingFor(windows.map((w) => w.utilization));
   const worstState = thresholdState(
     remaining === null ? null : 100 - remaining,

@@ -21,7 +21,7 @@ const CLAUDE_MATCH = 'https://claude.ai/*';
  * `RELAY_ORIGIN_PATTERN` there — a mismatch fails as an opaque network error,
  * not as a permission error.
  */
-const RELAY_MATCH = 'https://relay.wick.tools/*';
+const RELAY_MATCH = 'https://relay.usewick.lol/*';
 
 export default defineManifest({
   manifest_version: 3,
@@ -59,27 +59,33 @@ export default defineManifest({
     default_title: 'Wick',
   },
 
+  // Named `service-worker.ts`, not `index.ts`, and that is load-bearing: the
+  // bundler names output chunks after the entry's basename, so two entries
+  // called `index.ts` collide and one loader ends up importing the other's
+  // chunk. When that happened, the worker loaded the content script — no
+  // alarms, no collector, no icon, and no error to say so. See
+  // tests/manifest.test.ts.
   background:
     TARGET === 'chrome'
-      ? { service_worker: 'src/background/index.ts', type: 'module' }
-      : { scripts: ['src/background/index.ts'], type: 'module' },
+      ? { service_worker: 'src/background/service-worker.ts', type: 'module' }
+      : { scripts: ['src/background/service-worker.ts'], type: 'module' },
 
   content_scripts: [
+    {
+      matches: [CLAUDE_MATCH],
+      js: ['src/content/inject.ts'],
+      // Register through MV3 instead of appending a web-accessible `.ts` module.
+      // Chrome compiles this entry to JavaScript and executes it in the page's
+      // world without depending on the response MIME type of an extension URL.
+      world: 'MAIN',
+      run_at: 'document_start',
+    },
     {
       matches: [CLAUDE_MATCH],
       js: ['src/content/index.ts'],
       // The sidebar card mounts into a nav that React renders after first
       // paint, so the script waits for its anchor rather than racing it.
       run_at: 'document_idle',
-    },
-  ],
-
-  // The MAIN-world fetch wrapper. Reachable only from claude.ai — a page on any
-  // other origin cannot pull it in.
-  web_accessible_resources: [
-    {
-      resources: ['src/content/inject.ts'],
-      matches: [CLAUDE_MATCH],
     },
   ],
 });

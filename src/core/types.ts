@@ -25,6 +25,28 @@ export type LimitStatus =
   | 'unknown';
 
 /**
+ * What a window *is*, independent of what the provider calls it or where it
+ * appeared in a response.
+ *
+ * Presentation needs to pick "the window the forecast is about" and alerts need
+ * to pick "the one the threshold applies to". Both used to do it by array index,
+ * which is a promise claude.ai never made: it can reorder its own response, and
+ * a plan with model-scoped weeklies has more than two entries. The provider
+ * classifies once, at the boundary, and everything downstream selects by meaning.
+ */
+export type WindowRole =
+  /** The short rolling window — claude.ai's five hours. */
+  | 'session'
+  /** The account-wide weekly allowance. At most one of these. */
+  | 'weekly'
+  /** A weekly allowance scoped to one model. There can be several. */
+  | 'weekly-model'
+  /** Metered usage beyond the plan. */
+  | 'overage'
+  /** Something new the provider started reporting. Tracked, never featured. */
+  | 'other';
+
+/**
  * A single limit window — a five-hour session, a weekly allowance, whatever the
  * provider meters.
  */
@@ -55,6 +77,26 @@ export interface LimitWindow {
   resetsAt: number | null;
   /** Whether this window is currently metering anything. */
   active: boolean;
+  /** What this window means. Assigned by the provider; see `WindowRole`. */
+  role: WindowRole;
+  /**
+   * Which model or feature the window is scoped to, when `role` is
+   * `'weekly-model'`. Display only — the scope is already folded into `key`,
+   * because two windows that share a key share a history and a projection.
+   */
+  scope?: string;
+  /**
+   * Where this particular window's numbers came from, and when.
+   *
+   * Stamped by the store as it merges, never set by a provider: a provider
+   * reports what it read, and only the store knows which reading it was. They
+   * are per-window rather than per-snapshot because a snapshot can hold a fresh
+   * authoritative weekly beside a session window last seen on a stream — and
+   * merging honestly means being able to say which is which.
+   */
+  source?: SnapshotSource;
+  /** Epoch milliseconds when this window was observed. Stamped by the store. */
+  observedAt?: number;
 }
 
 /** Where a reading came from. Lower trust than `usage` never overwrites it. */
@@ -69,9 +111,22 @@ export type SnapshotSource =
 /** The latest known state, as displayed. One per provider. */
 export interface Snapshot {
   providerId: string;
+  /**
+   * Which account these numbers belong to — claude.ai's organisation id.
+   *
+   * Without it, switching organisations shows one account's limits under the
+   * other's name until the next poll lands, and there is no way for the store to
+   * know that a merge would be mixing two accounts' readings. `null` means the
+   * reading predates account tagging, or the provider could not identify one.
+   */
+  accountId: string | null;
   windows: LimitWindow[];
   /** Epoch milliseconds when this reading was taken. */
   fetchedAt: number;
+  /**
+   * The source of the most recent reading folded into this snapshot. Individual
+   * windows carry their own, which is the one to trust when they differ.
+   */
   source: SnapshotSource;
 }
 
@@ -83,6 +138,16 @@ export interface Snapshot {
 export interface DailyRollup {
   /** Local calendar date, `YYYY-MM-DD`. */
   date: string;
+  /**
+   * The account this day belongs to. Absent on rollups written before Wick
+   * tracked accounts, which are shown to whoever is signed in — there was only
+   * ever one account writing them.
+   *
+   * A rollup is identified by date *and* account: two organisations used on the
+   * same day are two rows, because merging them would invent a day neither
+   * account had.
+   */
+  accountId?: string;
   /**
    * Highest utilization observed in each window that day, keyed by
    * `LimitWindow.key`. Peak rather than final, because a window that reset
