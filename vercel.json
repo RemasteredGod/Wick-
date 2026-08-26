@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "tsc --noEmit",
+  "installCommand": "pnpm install --prod=false",
+  "buildCommand": "tsc --noEmit -p tsconfig.vercel.json",
   "outputDirectory": "public",
   "framework": null,
   "functions": {
