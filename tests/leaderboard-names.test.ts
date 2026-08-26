@@ -170,9 +170,11 @@ describe('assignName', () => {
     expect(COMBINATIONS).toBeGreaterThanOrEqual(2_000);
   });
 
-  it('does not derive anything from a Telegram identity', () => {
-    // There is no parameter through which one could. Guarded as a signature
-    // test because ADR 0007 turns on it.
+  it('does not derive anything from the user', () => {
+    // There is no parameter through which anything about them could arrive:
+    // `isTaken`, `random`, `attempts`. Guarded as a signature test because
+    // ADR 0007 turns on it, and because enrolment sends an empty body precisely
+    // so that this stays true.
     expect(assignName.length).toBeLessThanOrEqual(3);
   });
 });

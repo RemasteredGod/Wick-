@@ -248,8 +248,8 @@ async function recordAccepted(
 /**
  * The message types this module answers.
  *
- * Named rather than inferred from `isRuntimeMessage`, because the relay
- * messages travel the same channel and belong to `alerts.ts`. Claiming one of
+ * Named rather than inferred from `isRuntimeMessage`, because the leaderboard
+ * messages travel the same channel and belong to `board.ts`. Claiming one of
  * those by returning `true` would hold the reply port open for an answer this
  * module is never going to send, and the caller would see `undefined` instead
  * of the answer the other listener produced.
