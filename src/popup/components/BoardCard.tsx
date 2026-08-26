@@ -15,10 +15,12 @@ interface BoardCardProps {
  * they need no setup, and a status line for a thing that always works is a line
  * that says nothing.
  *
- * **What leaves the machine is named on the card.** A daily message count and
- * an assigned name — no percentages, no window keys, no account id, no times of
- * day. The user should be able to read what is published without opening the
- * privacy policy, so it is written here rather than linked to.
+ * **What leaves the machine is named on the card.** A daily message count, under
+ * an assigned name the board holds against the Claude account's email — no
+ * percentages, no window keys, no times of day. The user should be able to read
+ * what is published without opening the privacy policy, so it is written here
+ * rather than linked to. The address itself is on the settings screen, where
+ * there is room to say what it is for.
  *
  * Display only. The Join and Leave controls live on the settings screen, where
  * the permission prompt can be raised from a real click.

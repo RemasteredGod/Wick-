@@ -12,6 +12,12 @@
  * behind an optional host permission the popup asks for at the Join click. A
  * user who never joins never causes a request from here.
  *
+ * **The account email travels once, at enrolment.** The board keys a profile on
+ * the Claude account, which is what makes one account one public profile across
+ * every browser — but a daily submission carries only a bearer token, so the
+ * address does not ride along on every request or accumulate in the host's
+ * logs. Switching accounts re-enrols; see `adopt`.
+ *
  * **Only settled days are published.** Today is still accumulating, so sending
  * it would mean either publishing a number that goes stale within the hour or
  * resending the same day repeatedly. `boardSubmittedThrough` is the high-water
@@ -27,7 +33,14 @@ import { localDateKey } from '~/core/normalise';
 import { isRuntimeMessage, type BoardOutcome, type RuntimeResponse } from '~/core/messages';
 import type { DailyRollup } from '~/core/types';
 import { POLL_ALARM } from './alarms';
-import { readAccountId, readHistory, readSettings, writeSettings } from './store';
+import {
+  readAccountEmail,
+  readAccountId,
+  readHistory,
+  readSettings,
+  writeAccountEmail,
+  writeSettings,
+} from './store';
 
 /**
  * Where the board lives.
@@ -98,6 +111,19 @@ export async function drain(now = Date.now()): Promise<void> {
   const settings = await readSettings();
   const token = settings.boardToken;
   if (token === null) return;
+
+  // Publishing stops the moment the signed-in account stops being the one this
+  // token belongs to. The board keys a profile on the account, so a day sent
+  // now would attribute one account's work to another's public page — the same
+  // mistake the snapshot merge refuses to make with `accountId`, and the reason
+  // the answer here is silence rather than a best guess.
+  //
+  // It resumes by itself: the content script reports the new account, `adopt`
+  // enrols for it, and the next tick publishes under the right profile.
+  const signedInAs = await readAccountEmail();
+  if (signedInAs !== null && settings.boardEmail !== null && signedInAs !== settings.boardEmail) {
+    return;
+  }
 
   const pending = await pendingDays(settings.boardSubmittedThrough, now);
 
@@ -184,7 +210,49 @@ export function handleBoardMessage(
     return true;
   }
 
+  if (message.type === 'wick:account-email') {
+    // Fire and forget. The content script is reporting what it sees, not asking
+    // for anything, and holding the reply channel open for a write it does not
+    // read would be a port kept for nothing.
+    void adopt(message.email).catch(() => undefined);
+    return false;
+  }
+
   return false;
+}
+
+/**
+ * Note which Claude account is signed in, and re-enrol if it changed.
+ *
+ * The board keys a profile on the account, so switching accounts means
+ * switching profiles. Re-enrolling is safe and cheap: the server returns the
+ * *existing* name for an account it already knows, so coming back to an account
+ * lands on the same public profile rather than creating a second one.
+ *
+ * `boardSubmittedThrough` is reset with the token, because the high-water mark
+ * belongs to a profile rather than to the machine. Switching back and forth
+ * therefore republishes days the board already has, which the upsert makes
+ * harmless — it corrects a row rather than adding one.
+ *
+ * Does nothing at all when the user has not joined. Reading the address is free;
+ * sending it is not, and an installation that never pressed Join never does.
+ */
+export async function adopt(email: string): Promise<void> {
+  const normalised = email.trim().toLowerCase();
+  if (normalised === '') return;
+
+  const previous = await readAccountEmail();
+  if (previous !== normalised) await writeAccountEmail(normalised);
+
+  const settings = await readSettings();
+  if (settings.boardToken === null) return;
+  if (settings.boardEmail === normalised) return;
+
+  // Enrolled, and the account underneath has changed. Drop the old binding
+  // before asking for the new one: a failed enrolment must not leave the
+  // previous account's token in place to publish this account's days.
+  await writeSettings({ boardToken: null, boardName: null, boardSubmittedThrough: null });
+  await enroll();
 }
 
 /**
@@ -201,18 +269,31 @@ export function handleBoardMessage(
  */
 async function enroll(): Promise<BoardOutcome> {
   const { boardToken } = await readSettings();
-  // Already joined. Minting a second token would orphan the first, and with it
-  // every day published under it.
+  // Already joined, for the account currently signed in. `adopt` clears the
+  // binding first when the account changes, so reaching here with a token means
+  // there is nothing to do.
   if (boardToken !== null) return 'ok';
 
-  const body = await post('/api/enroll', null, {});
+  // The account is the profile's primary key, so there is nothing to enrol
+  // without it. A user signed out of claude.ai, or on a build whose sidebar
+  // renders differently, has no address to send and is told the board is
+  // unavailable rather than being given a profile bound to nothing.
+  const email = await readAccountEmail();
+  if (email === null) return 'unavailable';
+
+  const body = await post('/api/enroll', null, { email });
   if (body === null) return 'unavailable';
 
   const token = stringField(body, 'token');
   const name = stringField(body, 'name');
   if (token === null || name === null) return 'unavailable';
 
-  await writeSettings({ boardToken: token, boardName: name, boardSubmittedThrough: null });
+  await writeSettings({
+    boardToken: token,
+    boardName: name,
+    boardEmail: email,
+    boardSubmittedThrough: null,
+  });
   return 'ok';
 }
 
@@ -234,7 +315,12 @@ async function leave(): Promise<BoardOutcome> {
   const body = await post('/api/leave', boardToken, {});
   if (body === null) return 'unavailable';
 
-  await writeSettings({ boardToken: null, boardName: null, boardSubmittedThrough: null });
+  await writeSettings({
+    boardToken: null,
+    boardName: null,
+    boardEmail: null,
+    boardSubmittedThrough: null,
+  });
   return 'ok';
 }
 

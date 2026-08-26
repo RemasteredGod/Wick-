@@ -33,6 +33,7 @@ import {
   findAnchor,
   findDockTarget,
   findPanelParent,
+  findUserEmail,
 } from './selectors';
 import tokens from '~/styles/tokens.css?inline';
 import components from '~/styles/components.css?inline';
@@ -121,6 +122,8 @@ function mount(anchor: Element): void {
   // The panel measures its position against this element, from the other root.
   setPanelAnchor(host);
 
+  watchAccount();
+
   render(h(Card, {}), root);
   mountPanel();
 }
@@ -203,3 +206,53 @@ function safely(work: () => void): void {
 // forwarding whether or not the sidebar has an anchor to mount into.
 safely(initBridge);
 safely(waitForAnchor);
+
+/**
+ * Tell the worker which Claude account is signed in, and notice when it changes.
+ *
+ * The board keys a public profile on the account, so this is what makes one
+ * account one profile across every browser — and what stops a day being
+ * published under the wrong profile after somebody switches accounts.
+ *
+ * Polled rather than observed. `MutationObserver` on a React app that re-renders
+ * its sidebar constantly would fire hundreds of times a minute to answer a
+ * question whose answer changes at most once a session, and every one of those
+ * callbacks runs on claude.ai's own main thread. A read every few seconds costs
+ * one `querySelector` and is bounded whatever the page does.
+ *
+ * **Sent only when it changes.** The worker writes to storage on receipt, and
+ * every storage write wakes the icon renderer and the alert dispatcher; a
+ * message per tick would wake them for news that is not news.
+ *
+ * Fail quiet, like everything else in this file. Wick is a guest on someone
+ * else's page and not knowing the account is a state the board already handles.
+ */
+function watchAccount(): void {
+  let last: string | null = null;
+
+  const check = () => {
+    try {
+      const email = findUserEmail();
+      if (email === null || email === last) return;
+
+      last = email;
+      void chrome.runtime.sendMessage({ type: 'wick:account-email', email }).catch(() => undefined);
+    } catch {
+      // A worker that has been torn down and is still waking rejects the send.
+      // The next tick tries again.
+    }
+  };
+
+  check();
+  setInterval(check, ACCOUNT_POLL_MS);
+}
+
+/**
+ * How often to re-read the account from the sidebar.
+ *
+ * The user menu is rendered after first paint and the address can appear a
+ * moment after the card mounts, so this is also the retry for "not there yet".
+ * Five seconds is far below how often anyone switches accounts and far above
+ * how often a `querySelector` costs anything.
+ */
+const ACCOUNT_POLL_MS = 5_000;

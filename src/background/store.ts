@@ -35,6 +35,7 @@ export const KEYS = {
   status: 'wick:status',
   alerts: 'wick:alerts',
   account: 'wick:account',
+  accountEmail: 'wick:account-email',
 } as const;
 
 /**
@@ -130,6 +131,39 @@ export async function readAccountId(): Promise<string | null> {
   const stored = await chrome.storage.local.get(KEYS.account);
   const value = stored[KEYS.account];
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * The Claude account signed in, as the content script last saw it.
+ *
+ * Held separately from `Settings` because it is an observation rather than a
+ * preference: nothing on a settings screen sets it, and the user cannot change
+ * it except by signing into a different account. `Settings.boardEmail` is the
+ * different thing — the account the *board token* belongs to — and comparing
+ * the two is how `board.ts` notices a switch.
+ *
+ * `null` before any claude.ai tab has been open, and for a signed-out session.
+ */
+export async function readAccountEmail(): Promise<string | null> {
+  try {
+    const stored = (await chrome.storage.local.get(KEYS.accountEmail))[KEYS.accountEmail];
+    return typeof stored === 'string' && stored !== '' ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record the signed-in account. Never throws; not knowing is a handled state. */
+export async function writeAccountEmail(email: string | null): Promise<void> {
+  try {
+    if (email === null) {
+      await chrome.storage.local.remove(KEYS.accountEmail);
+      return;
+    }
+    await chrome.storage.local.set({ [KEYS.accountEmail]: email });
+  } catch {
+    // Storage refusing to write costs one late account switch, not correctness.
+  }
 }
 
 export async function writeAccountId(accountId: string | null): Promise<void> {

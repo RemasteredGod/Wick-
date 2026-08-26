@@ -1,8 +1,10 @@
 # Privacy
 
 Short version: Wick keeps your browser usage data on your machine. One optional
-feature sends anything elsewhere — the public leaderboard, which publishes a
-daily message count under an assigned name after you press Join.
+feature sends anything elsewhere — the public leaderboard. **If you join it, the
+board stores your Claude account's email address.** That is how one account
+stays one profile across every browser you sign into. It is off until you press
+Join, and Leave deletes it.
 
 ## Browser extension data
 
@@ -14,9 +16,12 @@ profile:
 - **Daily history** — the date, peak percentage per window, a message count, and
   an hourly breakdown of that count, used for the burn-rate projection and the
   panel's statistics.
+- **The signed-in account's email**, read from claude.ai's own sidebar. Held
+  locally whether or not you join the board, because the extension needs it to
+  notice that you have switched accounts.
 - **Settings** — display and alert preferences and, if you joined the
-  leaderboard, the participant token the board issued, the name it assigned, and
-  the last day already published.
+  leaderboard, the participant token the board issued, the name it assigned, the
+  account that token belongs to, and the last day already published.
 
 It does not store conversation content, prompts, responses, or titles. By
 default it makes no network request other than to claude.ai: there is no
@@ -40,38 +45,63 @@ along with everything else in local storage.
 The board is off until you press Join in settings. Nothing about it leaves your
 machine before that.
 
-**Joining** asks `https://www.usewick.lol` for a participant token and a name.
-The request carries an empty body: no email, no handle, no account id, nothing
-from claude.ai. The board assigns your name from a fixed word list — it is not
-derived from anything about you, and nothing on the board is joined to your
-Claude identity. Because the token is the only thing identifying you, there is
-no way to recover it if you lose it and no way for anyone, including the
-operator, to work out whose profile is whose.
+### What it stores, and what that costs you
+
+**Joining** sends your Claude account's email address to
+`https://www.usewick.lol`, which stores it as the primary key of your profile.
+That is the whole identity model: one account is one public profile across every
+browser it signs into, with no link step and nothing for you to do.
+
+Two consequences, stated plainly rather than buried:
+
+- **The board is not anonymous to its operator.** Anyone with database access
+  can see which email holds which public name. Earlier versions of this policy
+  said the opposite — that the board could not connect a profile to an identity
+  — and that is no longer true. The email is not shown on any public page, but
+  it is in the database.
+- **Nothing verifies the address.** The extension reads it off claude.ai's own
+  sidebar; it cannot prove the account is yours, and there is no Claude API to
+  check against. **So anyone who knows your email address can claim your
+  profile, publish figures under it, or delete it.** The board is self-reported
+  fun and its numbers were never verifiable; this is the price of it needing no
+  setup. If that trade is not one you want, do not join.
 
 **Each day**, the extension publishes one row: a calendar date and how many
-messages you sent on it. That is the entire submission. It does not send
-percentages, window names, reset times, the hourly breakdown, your organisation
-id, model names, project names, prompts, or responses. Only settled days are
-sent — today is never published, because it is still accumulating.
+messages you sent on it. That is the entire submission, and it carries a bearer
+token rather than your address — so the email travels once, at enrolment, and
+does not accumulate in the host's request logs. It does not send percentages,
+window names, reset times, the hourly breakdown, your organisation id, model
+names, project names, prompts, or responses. Only settled days are sent — today
+is never published, because it is still accumulating.
 
-The server stores, per participant:
+The server stores, per account:
 
-- the SHA-256 hash of the participant token — never the token itself;
+- the email address, as the profile's primary key, lowercased;
 - the assigned name, and its confusable-folded form;
-- the date each profile was created, to day granularity;
+- the date the profile was created, to day granularity;
+- one SHA-256 hash per browser's bearer token — never the token itself;
 - one row per calendar day: the day and the message count.
 
-It does not store a submission timestamp, an IP address, an account or
-organisation id, or anything finer than a calendar day. Re-submitting the same
-day replaces the row rather than adding to it.
+It does not store a submission timestamp, an IP address, an organisation id, or
+anything finer than a calendar day. Re-submitting the same day replaces the row
+rather than adding to it, and two browsers on one account converge on a single
+row rather than double-counting.
 
-The public pages at `https://usewick.lol` — the board at `/board` and each
-profile at `/u/<name>` — publish the assigned name, the message totals for the
-week, month, and all time, the number of days behind each total, and the last
-day submitted. Every board is labelled **self-reported**, because these figures
-come from software on each participant's own machine and cannot be verified. The
-pages have no analytics, cookies, client-side application, or third-party
-assets, and are cached for 60 seconds.
+### Switching accounts
+
+Each Claude account gets its own profile. Signing into a different account stops
+publishing under the old one immediately, and enrols the new one on the next
+poll. Signing back returns you to your original profile rather than creating a
+third.
+
+### The public pages
+
+The board at `/board` and each profile at `/u/<name>` publish the assigned name,
+the message totals for the week, month, and all time, the number of days behind
+each total, and the last day submitted. **No email address appears on any public
+page.** Every board is labelled self-reported, because these figures come from
+software on each participant's own machine and cannot be verified. The pages
+have no analytics, cookies, client-side application, or third-party assets.
 
 The board origin is an optional Chrome host permission, requested only from the
 Join button. Declining or revoking it blocks the board without affecting
@@ -85,10 +115,8 @@ shortest available period, and Wick configures no log drain, export, or
 third-party error tracker. Application code logs no request bodies, submission
 values, tokens, or hashes.
 
-For the length of that retention window, the host's own log records that
-*someone* published a day, from which IP — not who, since the token never
-appears in a URL. Anyone who does not accept that should not join the board; all
-extension tracking remains local either way.
+The enrolment request carries your email in its body; daily submissions do not.
+Bodies are not logged, and no address ever appears in a URL.
 
 ## What the extension reads from claude.ai
 
@@ -97,6 +125,8 @@ extension tracking remains local either way.
 - The usage endpoint, which returns current limit percentages.
 - The tail of completion responses, where claude.ai reports limit state. Wick
   extracts that event and discards the rest.
+- The account email in the sidebar's user menu, for the leaderboard identity
+  described above. Read on every claude.ai page; sent nowhere unless you join.
 
 Required host access is restricted to `https://claude.ai/*`. The optional board
 origin is the only other host the extension can be granted.
@@ -104,13 +134,15 @@ origin is the only other host the extension can be granted.
 ## Deleting data
 
 - Removing the extension deletes its local browser storage.
-- **Leave**, in settings, deletes your profile and every day you published, then
-  forgets the token locally. There is no tombstone and no soft delete: the name
-  returns to the pool and nothing is kept to show you were there. If the board
-  cannot be reached, nothing is cleared locally either, so you can try again.
-- Removing the extension without pressing Leave first leaves your published rows
-  on the board with no way to reach them — the token was the only thing that
-  could. Leave first.
+- **Leave**, in settings, deletes your profile, your email address, every day you
+  published, and every browser's token for the account — not just the browser you
+  pressed it in. There is no tombstone and no soft delete: the name returns to
+  the pool and nothing is kept to show you were there. If the board cannot be
+  reached, nothing is cleared locally either, so you can try again.
+- Removing the extension without pressing Leave first leaves your profile and
+  your address on the board. Leave first. (Because the board keys on the email,
+  re-installing and joining with the same account will reach the same profile,
+  from which you can then Leave.)
 - The board's platform request logs expire on the host's retention schedule and
   are not removed by these application-level deletions.
 

@@ -155,18 +155,26 @@ export function Settings({
                   not when, not which model, not how much of your limit you used.
                 </p>
                 <p class="wick-settings__note">
-                  You are <strong>{settings.boardName ?? 'unnamed'}</strong> on the board. The name
-                  was assigned — it is not derived from your account, and nothing on the board is
-                  joined to your claude.ai identity.
+                  You are <strong>{settings.boardName ?? 'unnamed'}</strong> on the board, for{' '}
+                  <strong>{settings.boardEmail ?? 'this account'}</strong>. The board keeps that
+                  address as your profile's key, which is what makes this the same profile in every
+                  browser you sign into. It is never shown on a public page. Sign into a different
+                  Claude account and you get a different profile.
                 </p>
                 <p class="wick-settings__note">
-                  Leaving deletes every day you have published and forgets the token here.
+                  Nothing checks that the address is yours, so treat the board as self-reported fun
+                  rather than a record: somebody who knows it could publish under your name.
+                </p>
+                <p class="wick-settings__note">
+                  Leaving deletes your profile, your address, and every day you published — in
+                  every browser, not just this one.
                 </p>
               </>
             ) : (
               <p class="wick-settings__note">
-                Optional, and off. Publishes a daily message count under an assigned name.
-                Nothing leaves this machine until you press Join.
+                Optional, and off. Publishes a daily message count under an assigned name, keyed on
+                your Claude account's email so it is one profile across your browsers. Nothing
+                leaves this machine until you press Join.
               </p>
             )}
 

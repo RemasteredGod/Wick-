@@ -1,24 +1,31 @@
 /**
  * Joining the board.
  *
- * `POST /api/enroll` with an empty body. Answers `{ token, name }`.
+ * `POST /api/enroll` with `{ email }`. Answers `{ token, name }`.
  *
- * **The request carries nothing, and that is the design.** No email, no handle,
- * no account id, no claude.ai anything — the extension's only contribution to
- * its own identity is holding the token afterwards. There is consequently
- * nothing to recover a lost token with, which is stated plainly in the settings
- * screen rather than softened.
+ * **The email is the profile's primary key**, so one Claude account is one
+ * public profile across every browser it signs into. A second browser enrolling
+ * with the same address gets its own token and the account's existing name —
+ * there is no link step, and nothing for the user to do.
  *
- * The name is assigned here, never chosen. `assignName` refuses reserved words
- * and confusable skeletons before proposing anything, and the store's unique
- * index on the folded form is what settles a race between two enrolments that
- * propose the same one.
+ * **Nothing verifies the address.** The extension read it off claude.ai's own
+ * sidebar; it cannot prove the account is the caller's, and there is no Claude
+ * API to check against. So possession of an email is enough to claim its
+ * profile. That is inherent to syncing from an identifier the extension merely
+ * observed, it is the owner's accepted trade for a board that needs no setup,
+ * and PRIVACY.md says so to the user rather than leaving it to be discovered.
+ *
+ * The name is assigned here, never chosen, and only for an account that has no
+ * profile yet. `assignName` refuses reserved words and confusable skeletons
+ * before proposing anything, and the store's unique index on the folded form
+ * settles a race between two enrolments that propose the same one.
  */
 
 import { randomInt } from 'node:crypto';
+import { readAccountEmail } from '../leaderboard/account.js';
 import { assignName } from '../leaderboard/names.js';
 import { configFromEnv, createSupabaseStore } from '../server/supabase-store.js';
-import { sendJson, type Req, type Res } from '../server/http.js';
+import { readJson, sendJson, type Req, type Res } from '../server/http.js';
 
 export default async function handler(req: Req, res: Res): Promise<void> {
   if (req.method !== 'POST') {
@@ -26,22 +33,25 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
+  const body = await readJson(req);
+  const email = readAccountEmail((body as { email?: unknown } | null)?.email);
+  if (email === null) {
+    sendJson(res, 400, { error: 'bad-email' }, 'no-store');
+    return;
+  }
+
   try {
     const store = createSupabaseStore(configFromEnv(process.env));
-
-    // The store decides whether a proposal is free, because only it can see
-    // what is already stored. `isTaken` is answered `false` here and the unique
-    // index does the real work — see the note on `enroll` in supabase-store.ts.
-    const enrolment = await store.enroll(() => assignName(() => false, random) ?? fallback());
+    const enrolment = await store.enroll(email, () => assignName(() => false, random) ?? fallback());
 
     if (enrolment === null) {
-      sendJson(res, 503, { error: 'no-name-available' });
+      sendJson(res, 503, { error: 'no-name-available' }, 'no-store');
       return;
     }
 
     // `no-store`, and it matters more here than anywhere else on the board: a
     // cached enrolment would hand one participant's token to the next caller.
-    sendJson(res, 200, enrolment, 'no-store');
+    sendJson(res, 200, { token: enrolment.token, name: enrolment.name }, 'no-store');
   } catch {
     sendJson(res, 503, { error: 'unavailable' }, 'no-store');
   }
