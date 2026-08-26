@@ -18,8 +18,8 @@
  * Pure. `today` is passed in; nothing here reads a clock.
  */
 
-import { inPeriod, type Day, type Period } from './periods';
-import { addCounters, emptyCounters, type Counters, type DailyRow } from './submission';
+import { inPeriod, type Day, type Period } from './periods.js';
+import { addCounters, emptyCounters, type Counters, type DailyRow } from './submission.js';
 
 /** Everything one participant has submitted. Rows are unique by day. */
 export interface Participant {

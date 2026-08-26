@@ -13,8 +13,8 @@
  * guarantee than a policy saying nobody should ask for it.
  */
 
-import type { Day, Period } from '../leaderboard/periods';
-import type { Standing } from '../leaderboard/ranking';
+import type { Day, Period } from '../leaderboard/periods.js';
+import type { Standing } from '../leaderboard/ranking.js';
 
 /** A leaderboard profile. One per chat, however many installations it has. */
 export interface Profile {

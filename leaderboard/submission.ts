@@ -15,7 +15,7 @@
  * Pure. Takes `unknown` because it runs on a request body.
  */
 
-import { isDay, type Day } from './periods';
+import { isDay, type Day } from './periods.js';
 
 /** The four first-party counters, exactly as Claude Code writes them. */
 export interface Counters {

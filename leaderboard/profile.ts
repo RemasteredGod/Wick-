@@ -14,9 +14,9 @@
  * Pure. Renders data structures, not markup.
  */
 
-import type { Counters } from './submission';
-import type { Period } from './periods';
-import type { Standing } from './ranking';
+import type { Counters } from './submission.js';
+import type { Period } from './periods.js';
+import type { Standing } from './ranking.js';
 
 /** The path prefix profiles live under. Kept in step with `RESERVED` in names.ts. */
 export const PROFILE_PREFIX = '/u/';

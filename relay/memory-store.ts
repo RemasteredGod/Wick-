@@ -15,11 +15,11 @@
  * everything in production.
  */
 
-import { board as rankBoard, standingFor, type Participant, type Standing } from '../leaderboard/ranking';
-import { fold } from '../leaderboard/names';
-import type { Day, Period } from '../leaderboard/periods';
-import type { DailyRow } from '../leaderboard/submission';
-import type { Profile, RelayStore } from './store';
+import { board as rankBoard, standingFor, type Participant, type Standing } from '../leaderboard/ranking.js';
+import { fold } from '../leaderboard/names.js';
+import type { Day, Period } from '../leaderboard/periods.js';
+import type { DailyRow } from '../leaderboard/submission.js';
+import type { Profile, RelayStore } from './store.js';
 
 interface Entry {
   profile: Profile;

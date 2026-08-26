@@ -13,9 +13,9 @@
  * `chat.id` enters the system here and nowhere else.
  */
 
-import { handle, parseCommand } from './commands';
-import { sendMessage, verifyWebhookSecret, type TelegramConfig } from './telegram';
-import type { Context } from './commands';
+import { handle, parseCommand } from './commands.js';
+import { sendMessage, verifyWebhookSecret, type TelegramConfig } from './telegram.js';
+import type { Context } from './commands.js';
 
 /** The slice of Telegram's update object Wick reads. Everything else is ignored. */
 interface Update {

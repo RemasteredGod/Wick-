@@ -17,9 +17,9 @@
  * they can be shared, bookmarked and cached individually.
  */
 
-import { SELF_REPORTED_LABEL } from './profile';
-import type { Period } from './periods';
-import type { Standing } from './ranking';
+import { SELF_REPORTED_LABEL } from './profile.js';
+import type { Period } from './periods.js';
+import type { Standing } from './ranking.js';
 
 /** Where each board lives. The apex is the landing page, not the board. */
 const PERIOD_PATHS: Record<Period, string> = {
