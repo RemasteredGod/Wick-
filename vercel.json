@@ -7,5 +7,9 @@
     "api/*.ts": {
       "maxDuration": 10
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/landing" },
+    { "source": "/board", "destination": "/api/board" }
+  ]
 }
