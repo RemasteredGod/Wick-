@@ -37,6 +37,7 @@ export function statsFrom(
 ): ProfileStats | null {
   const standings = new Map<Period, Standing | null>();
   let ranked = false;
+  let leaderTotal = 0;
 
   for (const period of PERIODS) {
     const all = place(
@@ -48,6 +49,11 @@ export function statsFrom(
         .filter((standing) => standing.ranked > 0),
     );
 
+    // All-time is the board a profile's share is measured against: a week's
+    // leader changes constantly, and a bar that moved for reasons nothing on
+    // the page explains is a bar nobody can read.
+    if (period === 'all') leaderTotal = all[0]?.ranked ?? 0;
+
     const found = all.find((standing) => standing.name === name) ?? null;
     if (found !== null) ranked = true;
     standings.set(period, found);
@@ -56,5 +62,9 @@ export function statsFrom(
   if (!ranked) return null;
 
   const participant = participants.find((candidate) => candidate.name === name);
-  return { standings, streak: participant === undefined ? 0 : runOfDays(participant) };
+  return {
+    standings,
+    streak: participant === undefined ? 0 : runOfDays(participant),
+    leaderTotal,
+  };
 }

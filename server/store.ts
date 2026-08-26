@@ -39,6 +39,15 @@ export interface ProfileStats {
   standings: Map<Period, Standing | null>;
   /** Consecutive submitted days ending at the most recent one. */
   streak: number;
+  /**
+   * The all-time leader's message total.
+   *
+   * Carried so a profile can draw its share of the board without a second
+   * query — the ranking pass has already sorted everyone, so the number is
+   * free here and would cost a full read anywhere else. Zero when nobody has
+   * published anything.
+   */
+  leaderTotal: number;
 }
 
 /** A leaderboard profile. One per Claude account. */
