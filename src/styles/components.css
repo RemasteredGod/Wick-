@@ -247,26 +247,26 @@
   color: var(--wick-text-faint);
 }
 
-/* ---- Telegram ------------------------------------------------------------ */
+/* ---- Leaderboard --------------------------------------------------------- */
 
-.wick-telegram {
+.wick-board {
   display: flex;
   flex-direction: column;
   gap: var(--wick-space-6);
 }
 
-.wick-telegram__head {
+.wick-board__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.wick-telegram__title {
+.wick-board__title {
   font-size: var(--wick-size-body-lg);
   color: var(--wick-text-primary);
 }
 
-.wick-telegram__status {
+.wick-board__status {
   display: flex;
   align-items: center;
   gap: var(--wick-space-6);
@@ -275,18 +275,18 @@
   color: var(--wick-ok);
 }
 
-.wick-telegram__status--off {
+.wick-board__status--off {
   color: var(--wick-text-dim);
 }
 
-.wick-telegram__dot {
+.wick-board__dot {
   width: var(--wick-space-5);
   height: var(--wick-space-5);
   border-radius: var(--wick-radius-pill);
   background: currentColor;
 }
 
-.wick-telegram__note {
+.wick-board__note {
   font-size: var(--wick-size-note);
   line-height: var(--wick-leading-tight);
   color: var(--wick-text-dim);

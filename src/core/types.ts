@@ -226,36 +226,34 @@ export interface DisplayOptions {
 /**
  * User settings.
  *
- * `botToken` is a Telegram bot token, and it is here deliberately.
- * `chrome.storage.local` is plain JSON on disk, so this is not a vault — but
- * the bot it governs was created by this user and talks to nobody but them,
- * they revoke it themselves in @BotFather, and anyone able to read this file
- * can already read the claude.ai session cookies beside it.
- * See ADR 0009 (per-user bot tokens), which supersedes ADR 0002 for
- * alerts and explains why that record's reasoning did not survive the move to
- * per-user bots.
+ * `boardToken` is the participant credential for the public leaderboard, and it
+ * is here deliberately. `chrome.storage.local` is plain JSON on disk, so this is
+ * not a vault — but the token authorises exactly one thing, writing daily
+ * message counts under one assigned name, and anyone able to read this file can
+ * already read the claude.ai session cookies beside it. The board is opt-in and
+ * this is `null` until the user joins.
  */
 export interface Settings {
   /** Weekly percentage at which an alert fires. Archive offers 50/80/90/95. */
   alertThreshold: number;
-  /** Also send a message when a window rolls over. */
+  /** Also notify when a window rolls over. */
   alertOnReset: boolean;
   display: DisplayOptions;
-  /** The user's own bot token, or null when alerts are not set up. */
-  botToken: string | null;
-  /** The chat alerts go to. Discovered, never typed — see background/telegram.ts. */
-  chatId: number | null;
-  /** Human label for where alerts land, for display only. */
-  chatLabel: string | null;
+  /** Participant token for the leaderboard, or null when not enrolled. */
+  boardToken: string | null;
+  /** The assigned name this installation submits under. Display only. */
+  boardName: string | null;
+  /** The last day already submitted, `YYYY-MM-DD`. Nothing before it is resent. */
+  boardSubmittedThrough: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   alertThreshold: 80,
   alertOnReset: true,
   display: { session: true, weekly: true, forecast: true, sparkline: true },
-  botToken: null,
-  chatId: null,
-  chatLabel: null,
+  boardToken: null,
+  boardName: null,
+  boardSubmittedThrough: null,
 };
 
 /** Thresholds the settings screen offers. From artboard 03. */
