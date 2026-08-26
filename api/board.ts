@@ -16,47 +16,43 @@
 import { renderBoard } from '../leaderboard/render';
 import { BOARD_SIZE } from '../leaderboard/ranking';
 import { configFromEnv, createSupabaseStore } from '../relay/supabase-store';
+import { queryParam, sendHtml, type Req, type Res } from '../relay/http';
 import type { Period } from '../leaderboard/periods';
+import type { Standing } from '../leaderboard/ranking';
 
-export const config = { runtime: 'nodejs' };
-
-export default async function handler(request: Request): Promise<Response> {
-  const period = readPeriod(request);
+export default async function handler(req: Req, res: Res): Promise<void> {
+  const period = readPeriod(req);
   const today = new Date().toISOString().slice(0, 10);
 
-  let standings;
+  let standings: Standing[];
   try {
     const store = createSupabaseStore(configFromEnv(process.env));
     standings = await store.board(period, today, BOARD_SIZE);
   } catch {
     // A board that cannot reach its database says so rather than rendering an
     // empty table, which would read as "nobody has submitted anything".
-    return new Response(
+    sendHtml(
+      res,
+      503,
       renderBoard({ period, standings: [], today }).replace(
         'No submissions',
         'The board is temporarily unavailable. No submissions',
       ),
-      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      'no-store',
     );
+    return;
   }
 
-  return new Response(renderBoard({ period, standings, today }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-      // The page is self-contained: no scripts, no external assets, no fonts.
-      // Saying so costs nothing and closes the injection surface entirely.
-      'Content-Security-Policy':
-        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'",
-      'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+  sendHtml(
+    res,
+    200,
+    renderBoard({ period, standings, today }),
+    'public, s-maxage=60, stale-while-revalidate=300',
+  );
 }
 
 /** `?p=month` or `?p=all`; anything else is the weekly board. */
-function readPeriod(request: Request): Period {
-  const value = new URL(request.url).searchParams.get('p');
+function readPeriod(req: Req): Period {
+  const value = queryParam(req, 'p');
   return value === 'month' || value === 'all' ? value : 'week';
 }
