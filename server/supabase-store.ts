@@ -23,15 +23,11 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { fold } from '../leaderboard/names.js';
-import {
-  board as rankBoard,
-  standingFor,
-  type Participant,
-  type Standing,
-} from '../leaderboard/ranking.js';
+import { board as rankBoard, type Participant, type Standing } from '../leaderboard/ranking.js';
+import { statsFrom } from './stats.js';
 import type { Day, Period } from '../leaderboard/periods.js';
 import type { DailyRow } from '../leaderboard/submission.js';
-import type { BoardStore, Profile } from './store.js';
+import type { BoardStore, Profile, ProfileStats } from './store.js';
 
 export interface SupabaseConfig {
   /** `https://<project>.supabase.co` — no trailing slash. */
@@ -203,8 +199,12 @@ export function createSupabaseStore(
       return rankBoard(await participants(), period, today, size);
     },
 
-    async standing(name: string, period: Period, today: Day): Promise<Standing | null> {
-      return standingFor(await participants(), name, period, today);
+    async stats(name: string, today: Day): Promise<ProfileStats | null> {
+      // One read for the whole page. `standing()` used to answer one period at
+      // a time, and every call reloaded and re-ranked every participant — a
+      // profile view cost three of those, and still could not report a streak,
+      // because a `Standing` has already summarised the days away.
+      return statsFrom(await participants(), name, today);
     },
 
     async forget(token) {

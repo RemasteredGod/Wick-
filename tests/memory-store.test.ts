@@ -76,9 +76,9 @@ describe('submitting', () => {
     await memory.saveDaily(token, { day: TODAY, messages: 10 });
     await memory.saveDaily(token, { day: TODAY, messages: 25 });
 
-    const standing = await memory.standing('ash', 'all', TODAY);
-    expect(standing?.ranked).toBe(25);
-    expect(standing?.days).toBe(1);
+    const stats = await memory.stats('ash', TODAY);
+    expect(stats?.standings.get('all')?.ranked).toBe(25);
+    expect(stats?.standings.get('all')?.days).toBe(1);
   });
 
   it('accumulates across distinct days', async () => {
@@ -88,9 +88,12 @@ describe('submitting', () => {
     await memory.saveDaily(token, { day: '2026-08-24', messages: 10 });
     await memory.saveDaily(token, { day: TODAY, messages: 25 });
 
-    const standing = await memory.standing('ash', 'all', TODAY);
-    expect(standing?.ranked).toBe(35);
-    expect(standing?.days).toBe(2);
+    const stats = await memory.stats('ash', TODAY);
+    expect(stats?.standings.get('all')?.ranked).toBe(35);
+    expect(stats?.standings.get('all')?.days).toBe(2);
+    // Two consecutive days, so the streak is two — the figure the profile page
+    // reported as zero for as long as it asked one period at a time.
+    expect(stats?.streak).toBe(2);
   });
 
   it('drops a write from a token nobody holds', async () => {
@@ -121,7 +124,7 @@ describe('leaving', () => {
 
     expect(await memory.profile(token)).toBeNull();
     expect(await memory.board('all', TODAY, 10)).toEqual([]);
-    expect(await memory.standing('ash', 'all', TODAY)).toBeNull();
+    expect(await memory.stats('ash', TODAY)).toBeNull();
   });
 
   it('returns the name to the pool', async () => {
@@ -154,5 +157,43 @@ describe('seeding', () => {
     const board = await memory.board('all', TODAY, 10);
     expect(board[0]?.name).toBe('ash');
     expect(board[0]?.ranked).toBe(40);
+  });
+});
+
+describe('profile stats', () => {
+  it('answers every period and the streak from one call', async () => {
+    const memory = store();
+    const { token } = (await memory.enroll(() => 'ash')) ?? { token: '' };
+    await memory.saveDaily(token, { day: '2026-08-23', messages: 4 });
+    await memory.saveDaily(token, { day: '2026-08-24', messages: 6 });
+    await memory.saveDaily(token, { day: TODAY, messages: 5 });
+
+    const stats = await memory.stats('ash', TODAY);
+    expect([...(stats?.standings.keys() ?? [])]).toEqual(['week', 'month', 'all']);
+    expect(stats?.standings.get('all')?.ranked).toBe(15);
+    expect(stats?.streak).toBe(3);
+  });
+
+  it('hides a joined participant who has published nothing', async () => {
+    // Indistinguishable from a name nobody has taken, and from one whose holder
+    // left. A page that separated them would let anyone enumerate who had quit.
+    const memory = store();
+    await memory.enroll(() => 'silent');
+
+    expect(await memory.stats('silent', TODAY)).toBeNull();
+    expect(await memory.stats('never-existed', TODAY)).toBeNull();
+  });
+
+  it('ranks against everyone, not against the published slice', async () => {
+    const memory = store();
+    for (let index = 0; index < 120; index += 1) {
+      const name = `p${String(index).padStart(3, '0')}`;
+      const { token } = (await memory.enroll(() => name)) ?? { token: '' };
+      await memory.saveDaily(token, { day: TODAY, messages: 1_000 - index });
+    }
+
+    const stats = await memory.stats('p110', TODAY);
+    expect(stats?.standings.get('all')?.rank).toBe(111);
+    expect((await memory.board('all', TODAY, 100)).some((s) => s.name === 'p110')).toBe(false);
   });
 });

@@ -208,7 +208,23 @@ describe('boards', () => {
       daily_rows: [row('a', '2026-08-25', 500), row('b', '2026-08-25', 10)],
     });
 
-    expect((await store.standing('idler', 'all', '2026-08-25'))?.rank).toBe(2);
+    const stats = await store.stats('idler', '2026-08-25');
+    expect(stats?.standings.get('all')?.rank).toBe(2);
+  });
+
+  it('answers a whole profile page in one pass over the tables', async () => {
+    // Three periods and a streak used to be three `standing` calls, each of
+    // which reloaded and re-ranked every participant: six table reads for one
+    // page, and no streak at the end of it.
+    const { calls, store } = rest({
+      profiles,
+      daily_rows: [row('a', '2026-08-24', 300), row('a', '2026-08-25', 200)],
+    });
+
+    const stats = await store.stats('worker', '2026-08-25');
+    expect(stats?.standings.get('all')?.ranked).toBe(500);
+    expect(stats?.streak).toBe(2);
+    expect(calls).toHaveLength(2);
   });
 });
 

@@ -22,6 +22,21 @@ import type { Day, Period } from '../leaderboard/periods.js';
 import type { Standing } from '../leaderboard/ranking.js';
 import type { DailyRow } from '../leaderboard/submission.js';
 
+/**
+ * Everything one profile page needs, from one read.
+ *
+ * A rank in each of the three periods plus the streak. Bundled rather than
+ * fetched a period at a time because an adapter answers a standing by loading
+ * every participant and ranking them — asking three times means doing that
+ * three times for one page, and the streak needs the day-by-day rows that a
+ * `Standing` has already summarised away.
+ */
+export interface ProfileStats {
+  standings: Map<Period, Standing | null>;
+  /** Consecutive submitted days ending at the most recent one. */
+  streak: number;
+}
+
 /** A leaderboard profile. One per participant token. */
 export interface Profile {
   name: string;
@@ -66,7 +81,16 @@ export interface BoardStore {
   /* ---- Boards ------------------------------------------------------------ */
 
   board(period: Period, today: Day, size: number): Promise<Standing[]>;
-  standing(name: string, period: Period, today: Day): Promise<Standing | null>;
+
+  /**
+   * The three standings and the streak for one name, or `null` if nobody holds
+   * it.
+   *
+   * `null` covers both "never taken" and "left", and callers must not be able
+   * to tell those apart — a page that distinguished them would let anyone
+   * enumerate who had quit.
+   */
+  stats(name: string, today: Day): Promise<ProfileStats | null>;
 
   /* ---- Leaving ----------------------------------------------------------- */
 

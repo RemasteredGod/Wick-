@@ -11,16 +11,12 @@
  * everything in production.
  */
 
-import {
-  board as rankBoard,
-  standingFor,
-  type Participant,
-  type Standing,
-} from '../leaderboard/ranking.js';
+import { board as rankBoard, type Participant, type Standing } from '../leaderboard/ranking.js';
+import { statsFrom } from './stats.js';
 import { fold } from '../leaderboard/names.js';
 import type { Day, Period } from '../leaderboard/periods.js';
 import type { DailyRow } from '../leaderboard/submission.js';
-import type { BoardStore, Profile } from './store.js';
+import type { BoardStore, Profile, ProfileStats } from './store.js';
 
 interface Entry {
   profile: Profile;
@@ -92,8 +88,8 @@ export function createMemoryStore(mintToken: () => string = defaultMint): Memory
       return rankBoard(participants(), period, today, size);
     },
 
-    async standing(name: string, period: Period, today: Day): Promise<Standing | null> {
-      return standingFor(participants(), name, period, today);
+    async stats(name: string, today: Day): Promise<ProfileStats | null> {
+      return statsFrom(participants(), name, today);
     },
 
     async forget(token) {
