@@ -104,7 +104,17 @@ export type RuntimeMessage =
    * profile across every browser — and what tells the worker that the user has
    * switched accounts and is now publishing as somebody else.
    */
-  | { type: 'wick:account-email'; email: string };
+  | { type: 'wick:account-email'; email: string }
+  /**
+   * Ask an open claude.ai tab which account is signed in, right now.
+   *
+   * The reverse direction of everything else here: worker to content script.
+   * It exists because the account is only readable from the page, and Join is
+   * pressed in the popup — which may happen before the content script's first
+   * report, or with the last claude.ai tab already closed. Without this, the
+   * worker's only options are a stale answer or none.
+   */
+  | { type: 'wick:read-account' };
 
 /**
  * How a leaderboard action ended.
@@ -116,6 +126,17 @@ export type RuntimeMessage =
  */
 export type BoardOutcome =
   | 'ok'
+  /**
+   * Wick does not know which Claude account is signed in.
+   *
+   * Distinct from `unavailable`, and the distinction is the point: nothing is
+   * broken and nothing is down. The board keys a profile on the account, and
+   * the account is only readable from a claude.ai page — so the fix is a step
+   * the user has not taken yet rather than a fault they can only wait out.
+   * Reporting it as "could not reach the leaderboard" sent people to check a
+   * server that was answering perfectly.
+   */
+  | 'no-account'
   /** The board could not be reached, or answered with an error. */
   | 'unavailable'
   /** The user declined the host permission the call needs. */
@@ -124,6 +145,8 @@ export type BoardOutcome =
 export type RuntimeResponse =
   | { ok: true; state: WickState }
   | { ok: true; outcome: BoardOutcome }
+  /** The answer to `wick:read-account`. `null` when the page does not say. */
+  | { ok: true; email: string | null }
   | { ok: true }
   | { ok: false; error: string };
 
@@ -139,6 +162,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:get-state' ||
     type === 'wick:board-enroll' ||
     type === 'wick:board-leave' ||
-    type === 'wick:account-email'
+    type === 'wick:account-email' ||
+    type === 'wick:read-account'
   );
 }

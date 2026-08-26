@@ -306,6 +306,14 @@ export function Settings({
  * answer is "did anything happen?".
  */
 const PROBLEM_COPY: Record<Exclude<BoardOutcome, 'ok'>, string> = {
+  // Not a failure, and worded as the step it is. The board keys a profile on
+  // the Claude account, and the account is only readable from a claude.ai page.
+  // Names the reload explicitly. A tab that was already open when the extension
+  // was installed or updated is running no content script at all, which is the
+  // commonest way to reach this and the one where "open claude.ai" reads as
+  // nonsense to somebody already looking at it.
+  'no-account':
+    'Wick reads your account from the claude.ai page. Open claude.ai and sign in — or reload the tab if it was already open — then press Join.',
   unavailable: 'Could not reach the leaderboard. Nothing was changed.',
   'not-permitted': 'Wick needs permission to reach the leaderboard before it can join.',
 };

@@ -70,7 +70,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
-  const card = buildCard(name, stats.standings, stats.streak);
+  const card = buildCard(name, stats.standings, stats.streak, stats.leaderTotal);
   sendHtml(res, 200, renderProfile(card, today), PROFILE_CACHE);
 }
 

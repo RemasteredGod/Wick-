@@ -315,9 +315,10 @@ describe('joining', () => {
     expect(bodies(fetchMock)).toEqual([{ email: ASH }]);
   });
 
-  it('refuses to join without an account to key the profile on', async () => {
-    // Signed out, or a sidebar this build renders differently. A profile bound
-    // to nothing would be a profile nothing could ever find again.
+  it('says the account is unknown rather than blaming the board', async () => {
+    // Signed out, no claude.ai tab, or a sidebar this build renders
+    // differently. Nothing is down, and reporting it as "could not reach the
+    // leaderboard" sends people to check a server that is answering perfectly.
     const fetchMock = ok({ token: 'minted', name: 'n' });
     vi.stubGlobal('fetch', fetchMock);
     settings();
@@ -326,7 +327,89 @@ describe('joining', () => {
 
     expect(await ask({ type: 'wick:board-enroll' })).toEqual({
       ok: true,
-      outcome: 'unavailable',
+      outcome: 'no-account',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('asks an open claude.ai tab when it has not been told the account yet', async () => {
+    // Join is pressed in the popup, which cannot read the page, and the content
+    // script reports on a five-second poll. Someone who installs Wick and opens
+    // the popup promptly would otherwise be refused for no reason.
+    const fetchMock = ok({ token: 'minted', name: 'amber-ledger-0042' });
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(null);
+
+    fake.tabs.push({ url: 'https://claude.ai/chats' });
+    fake.tabReplies.set('wick:read-account', { ok: true, email: ASH });
+
+    expect(await ask({ type: 'wick:board-enroll' })).toEqual({ ok: true, outcome: 'ok' });
+
+    expect(bodies(fetchMock)).toEqual([{ email: ASH }]);
+    // And it remembers, so the next caller does not have to ask again.
+    expect(fake.store.get(KEYS.accountEmail)).toBe(ASH);
+  });
+
+  it('does not ask a tab when it already knows the account', async () => {
+    const fetchMock = ok({ token: 'minted', name: 'n' });
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(ASH);
+    fake.tabs.push({ url: 'https://claude.ai/chats' });
+
+    await ask({ type: 'wick:board-enroll' });
+
+    expect(fake.tabMessages).toHaveLength(0);
+  });
+
+  it('keeps asking past a tab whose content script cannot answer', async () => {
+    // `chrome.tabs.sendMessage` rejects for a tab with no listener — a page
+    // loaded before the extension was updated, or one still starting up. A
+    // catch around the whole loop would let the first such tab abandon the
+    // search while a perfectly good tab sat behind it.
+    const fetchMock = ok({ token: 'minted', name: 'amber-ledger-0042' });
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(null);
+
+    // Two claude.ai tabs. Only the second can answer.
+    fake.tabs.push({ url: 'https://claude.ai/stale' });
+    fake.tabs.push({ url: 'https://claude.ai/chats' });
+    let asked = 0;
+    fake.tabReplies.set('wick:read-account', undefined);
+    // The fake answers by type, so drive "first tab fails" by intercepting.
+    const original = chrome.tabs.sendMessage.bind(chrome.tabs);
+    chrome.tabs.sendMessage = (() => {
+      asked += 1;
+      if (asked === 1) return Promise.reject(new Error('Receiving end does not exist.'));
+      return Promise.resolve({ ok: true, email: ASH });
+    }) as typeof chrome.tabs.sendMessage;
+
+    try {
+      expect(await ask({ type: 'wick:board-enroll' })).toEqual({ ok: true, outcome: 'ok' });
+      expect(asked).toBe(2);
+      expect(bodies(fetchMock)).toEqual([{ email: ASH }]);
+    } finally {
+      chrome.tabs.sendMessage = original;
+    }
+  });
+
+  it('reports no-account when the tab cannot say either', async () => {
+    // A claude.ai tab whose content script has not loaded, or a signed-out page.
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(null);
+    fake.tabs.push({ url: 'https://claude.ai/chats' });
+
+    expect(await ask({ type: 'wick:board-enroll' })).toEqual({
+      ok: true,
+      outcome: 'no-account',
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -335,6 +418,9 @@ describe('joining', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
     settings();
     fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    // Past the account check, so this exercises the network failure and not the
+    // one before it.
+    signedInAs(ASH);
 
     expect(await ask({ type: 'wick:board-enroll' })).toEqual({
       ok: true,

@@ -33,6 +33,7 @@ import { localDateKey } from '~/core/normalise';
 import { isRuntimeMessage, type BoardOutcome, type RuntimeResponse } from '~/core/messages';
 import type { DailyRollup } from '~/core/types';
 import { POLL_ALARM } from './alarms';
+import { providers } from './collector';
 import {
   readAccountEmail,
   readAccountId,
@@ -275,11 +276,10 @@ async function enroll(): Promise<BoardOutcome> {
   if (boardToken !== null) return 'ok';
 
   // The account is the profile's primary key, so there is nothing to enrol
-  // without it. A user signed out of claude.ai, or on a build whose sidebar
-  // renders differently, has no address to send and is told the board is
-  // unavailable rather than being given a profile bound to nothing.
-  const email = await readAccountEmail();
-  if (email === null) return 'unavailable';
+  // without it — and `no-account` rather than `unavailable`, because nothing is
+  // down and the user has a step to take.
+  const email = await currentAccount();
+  if (email === null) return 'no-account';
 
   const body = await post('/api/enroll', null, { email });
   if (body === null) return 'unavailable';
@@ -322,6 +322,68 @@ async function leave(): Promise<BoardOutcome> {
     boardSubmittedThrough: null,
   });
   return 'ok';
+}
+
+/**
+ * Which Claude account is signed in.
+ *
+ * The stored answer when there is one, and otherwise **asked of an open
+ * claude.ai tab there and then**. The second half matters more than it looks:
+ * Join is pressed in the popup, the account is only readable from the page, and
+ * the content script reports on a five-second poll — so a user who installs
+ * Wick and opens the popup promptly would otherwise be told the leaderboard was
+ * unreachable when the only problem was that nobody had looked yet.
+ *
+ * Asking costs one message to one tab, and only when the answer is not already
+ * known. `chrome.tabs.query` with a URL filter needs no `tabs` permission of its
+ * own — it reads URLs only for hosts Wick already has permission for, the same
+ * way the poll cadence decides whether anyone is watching.
+ *
+ * The patterns come from the providers rather than being written here: no
+ * claude.ai URL may appear outside `src/providers/`.
+ */
+async function currentAccount(): Promise<string | null> {
+  const stored = await readAccountEmail();
+  if (stored !== null) return stored;
+
+  const patterns = providers.flatMap((provider) => provider.matchPatterns);
+  if (patterns.length === 0) return null;
+
+  let tabs: chrome.tabs.Tab[];
+  try {
+    tabs = await chrome.tabs.query({ url: patterns });
+  } catch {
+    // A browser shutting down. Not knowing is a handled state.
+    return null;
+  }
+
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+
+    // Inside the loop, deliberately. `sendMessage` **rejects** for a tab with no
+    // listener — a page whose content script has not run yet, or one loaded
+    // before the extension was updated — and catching outside would let the
+    // first such tab abandon the search while a perfectly good tab sat behind
+    // it.
+    try {
+      const reply = (await chrome.tabs.sendMessage(tab.id, {
+        type: 'wick:read-account',
+      })) as RuntimeResponse | undefined;
+
+      if (reply === undefined || !reply.ok || !('email' in reply)) continue;
+      if (reply.email === null) continue;
+
+      // Remember it, so the next caller does not have to ask again and so a
+      // later account switch has something to compare against.
+      await writeAccountEmail(reply.email);
+      return reply.email;
+    } catch {
+      // This tab cannot answer. The next one might.
+      continue;
+    }
+  }
+
+  return null;
 }
 
 /* ---- Transport ----------------------------------------------------------- */

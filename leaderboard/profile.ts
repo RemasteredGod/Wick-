@@ -75,6 +75,14 @@ export interface ProfileCard {
   standings: CardStanding[];
   /** Messages all time. The same figure `ranked` carries for the `all` period. */
   messages: number;
+  /**
+   * This profile's all-time total as a percentage of the leader's, 0-100.
+   *
+   * 100 for the leader, and 0 when there is no board to be a share of. Rounded
+   * once here rather than at each surface, so the number under the bar and the
+   * width of the bar cannot disagree.
+   */
+  share: number;
   /** Distinct days submitted, all time. */
   days: number;
   streak: number;
@@ -94,6 +102,7 @@ export function buildCard(
   name: string,
   standings: ReadonlyMap<Period, Standing | null>,
   streak: number,
+  leaderTotal = 0,
 ): ProfileCard {
   const lines: CardStanding[] = [];
   let messages = 0;
@@ -114,5 +123,20 @@ export function buildCard(
     }
   }
 
-  return { name, standings: lines, messages, days, streak, lastDay, label: SELF_REPORTED_LABEL };
+  // Clamped, because a leader total that lags the row it is compared against —
+  // two reads a moment apart, or a board of one — must not draw a bar past its
+  // own track.
+  const share =
+    leaderTotal > 0 ? Math.max(0, Math.min(100, Math.round((messages / leaderTotal) * 100))) : 0;
+
+  return {
+    name,
+    standings: lines,
+    messages,
+    days,
+    streak,
+    share,
+    lastDay,
+    label: SELF_REPORTED_LABEL,
+  };
 }
