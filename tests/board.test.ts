@@ -365,6 +365,39 @@ describe('joining', () => {
     expect(fake.tabMessages).toHaveLength(0);
   });
 
+  it('keeps asking past a tab whose content script cannot answer', async () => {
+    // `chrome.tabs.sendMessage` rejects for a tab with no listener — a page
+    // loaded before the extension was updated, or one still starting up. A
+    // catch around the whole loop would let the first such tab abandon the
+    // search while a perfectly good tab sat behind it.
+    const fetchMock = ok({ token: 'minted', name: 'amber-ledger-0042' });
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(null);
+
+    // Two claude.ai tabs. Only the second can answer.
+    fake.tabs.push({ url: 'https://claude.ai/stale' });
+    fake.tabs.push({ url: 'https://claude.ai/chats' });
+    let asked = 0;
+    fake.tabReplies.set('wick:read-account', undefined);
+    // The fake answers by type, so drive "first tab fails" by intercepting.
+    const original = chrome.tabs.sendMessage.bind(chrome.tabs);
+    chrome.tabs.sendMessage = (() => {
+      asked += 1;
+      if (asked === 1) return Promise.reject(new Error('Receiving end does not exist.'));
+      return Promise.resolve({ ok: true, email: ASH });
+    }) as typeof chrome.tabs.sendMessage;
+
+    try {
+      expect(await ask({ type: 'wick:board-enroll' })).toEqual({ ok: true, outcome: 'ok' });
+      expect(asked).toBe(2);
+      expect(bodies(fetchMock)).toEqual([{ email: ASH }]);
+    } finally {
+      chrome.tabs.sendMessage = original;
+    }
+  });
+
   it('reports no-account when the tab cannot say either', async () => {
     // A claude.ai tab whose content script has not loaded, or a signed-out page.
     const fetchMock = ok();

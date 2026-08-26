@@ -122,8 +122,6 @@ function mount(anchor: Element): void {
   // The panel measures its position against this element, from the other root.
   setPanelAnchor(host);
 
-  watchAccount();
-
   render(h(Card, {}), root);
   mountPanel();
 }
@@ -205,6 +203,16 @@ function safely(work: () => void): void {
 // The bridge does not depend on the card: limits observed on the wire are worth
 // forwarding whether or not the sidebar has an anchor to mount into.
 safely(initBridge);
+
+// Neither does the account. It used to be started from `mount`, which made
+// knowing who is signed in conditional on the sidebar card having found an
+// anchor and mounted — so a layout Wick cannot dock into, a mount that bailed
+// because its host element already existed, or simply the fifteen-second anchor
+// timeout all left the worker with no way to read the account and no way to ask
+// for it. Joining the board then failed on a page that was showing the address
+// the whole time.
+safely(watchAccount);
+
 safely(waitForAnchor);
 
 /**

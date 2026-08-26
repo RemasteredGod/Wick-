@@ -229,11 +229,18 @@ export function installChromeMock(): FakeChrome {
       sendMessage: (tabId: number, message: unknown) => {
         tabMessages.push({ tabId, message });
         const type = (message as { type?: unknown } | null)?.type;
-        // Chrome resolves undefined when nothing is listening in the tab, which
-        // is what a page whose content script has not loaded looks like.
-        return Promise.resolve(
-          typeof type === 'string' ? tabReplies.get(type) : undefined,
-        );
+        const reply = typeof type === 'string' ? tabReplies.get(type) : undefined;
+
+        // Chrome **rejects** when nothing is listening in the tab — a page whose
+        // content script has not run yet, or one loaded before the extension was
+        // updated. Resolving undefined instead would let a caller that catches
+        // too broadly look correct here and abandon a search in the browser.
+        if (reply === undefined) {
+          return Promise.reject(
+            new Error('Could not establish connection. Receiving end does not exist.'),
+          );
+        }
+        return Promise.resolve(reply);
       },
     },
   };

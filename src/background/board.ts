@@ -349,12 +349,23 @@ async function currentAccount(): Promise<string | null> {
   const patterns = providers.flatMap((provider) => provider.matchPatterns);
   if (patterns.length === 0) return null;
 
+  let tabs: chrome.tabs.Tab[];
   try {
-    const tabs = await chrome.tabs.query({ url: patterns });
+    tabs = await chrome.tabs.query({ url: patterns });
+  } catch {
+    // A browser shutting down. Not knowing is a handled state.
+    return null;
+  }
 
-    for (const tab of tabs) {
-      if (tab.id === undefined) continue;
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
 
+    // Inside the loop, deliberately. `sendMessage` **rejects** for a tab with no
+    // listener — a page whose content script has not run yet, or one loaded
+    // before the extension was updated — and catching outside would let the
+    // first such tab abandon the search while a perfectly good tab sat behind
+    // it.
+    try {
       const reply = (await chrome.tabs.sendMessage(tab.id, {
         type: 'wick:read-account',
       })) as RuntimeResponse | undefined;
@@ -366,10 +377,10 @@ async function currentAccount(): Promise<string | null> {
       // later account switch has something to compare against.
       await writeAccountEmail(reply.email);
       return reply.email;
+    } catch {
+      // This tab cannot answer. The next one might.
+      continue;
     }
-  } catch {
-    // No tab, a content script that has not loaded, or a browser shutting down.
-    // Not knowing is a handled state everywhere it is used.
   }
 
   return null;
