@@ -22,9 +22,11 @@ const CLAUDE_MATCH = 'https://claude.ai/*';
  * not as a permission error.
  *
  * One fixed host, unlike the `api.telegram.org` grant it replaces: the board is
- * a single deployment Wick owns, so the pattern names it exactly.
+ * a single deployment Wick owns, so the pattern names it exactly. `www` rather
+ * than the apex, because the apex redirects and a cross-origin redirect drops
+ * the `Authorization` header — see the note in `board.ts`.
  */
-const BOARD_MATCH = 'https://wick.vercel.app/*';
+const BOARD_MATCH = 'https://www.usewick.lol/*';
 
 export default defineManifest({
   manifest_version: 3,

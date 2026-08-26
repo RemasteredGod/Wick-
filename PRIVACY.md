@@ -40,7 +40,7 @@ along with everything else in local storage.
 The board is off until you press Join in settings. Nothing about it leaves your
 machine before that.
 
-**Joining** asks `https://wick.vercel.app` for a participant token and a name.
+**Joining** asks `https://www.usewick.lol` for a participant token and a name.
 The request carries an empty body: no email, no handle, no account id, nothing
 from claude.ai. The board assigns your name from a fixed word list — it is not
 derived from anything about you, and nothing on the board is joined to your
@@ -65,7 +65,7 @@ It does not store a submission timestamp, an IP address, an account or
 organisation id, or anything finer than a calendar day. Re-submitting the same
 day replaces the row rather than adding to it.
 
-The public pages at `https://wick.vercel.app` — the board at `/board` and each
+The public pages at `https://usewick.lol` — the board at `/board` and each
 profile at `/u/<name>` — publish the assigned name, the message totals for the
 week, month, and all time, the number of days behind each total, and the last
 day submitted. Every board is labelled **self-reported**, because these figures

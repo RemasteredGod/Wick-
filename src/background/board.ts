@@ -32,11 +32,20 @@ import { readAccountId, readHistory, readSettings, writeSettings } from './store
 /**
  * Where the board lives.
  *
+ * **`www`, not the apex, and that is load-bearing.** `usewick.lol` answers 308
+ * and redirects here. A 308 preserves the method and the body, so a submission
+ * would survive it — but `www.usewick.lol` is a *different origin*, and `fetch`
+ * strips the `Authorization` header across an origin-crossing redirect. Posting
+ * through the apex would arrive unauthenticated and be refused as a 401 that
+ * looks like a bad token. Naming the canonical host means never taking the
+ * redirect.
+ *
  * `BOARD_ORIGIN_PATTERN` must stay identical to `BOARD_MATCH` in
  * `src/manifest.ts` — a mismatch fails as an opaque network error rather than
  * as a permission error, which is a much harder thing to diagnose.
+ * `tests/manifest.test.ts` asserts they agree.
  */
-export const BOARD_ORIGIN = 'https://wick.vercel.app';
+export const BOARD_ORIGIN = 'https://www.usewick.lol';
 export const BOARD_ORIGIN_PATTERN = `${BOARD_ORIGIN}/*`;
 
 /** How long a board call may take before it is abandoned. */
