@@ -1,15 +1,19 @@
 /**
  * Assigning names, and refusing bad ones.
  *
- * ADR 0007: every profile is created with a randomly assigned name, and
- * changing it is the one thing the project sells. Two consequences meet in this
- * file. The assigned name must never be derived from anything the user gave
- * Telegram — not their username, title, first name or id — and the *purchased*
- * name is public, durable, and therefore a moderation surface.
+ * ADR 0007: every profile is created with a randomly assigned name. What that
+ * record adds — that changing it is the one thing the project sells — is not
+ * built: there is no checkout, and the paid-rename flow went with the Telegram
+ * bot that offered it. `validateName` stays, because a name somebody chooses
+ * remains a moderation surface whenever it returns.
  *
- * "Someone will pay a dollar to be called `anthropic`" is not a hypothetical.
- * The reserved list and the confusable folding below are the whole defence, so
- * they are specified here rather than left to a database constraint.
+ * The assigned name must never be derived from anything about the user. There
+ * is nothing to derive it from — enrolment sends an empty body — and `assignName`
+ * takes no parameter through which one could arrive.
+ *
+ * "Someone will want to be called `anthropic`" is not a hypothetical. The
+ * reserved list and the confusable folding below are the whole defence, so they
+ * are specified here rather than left to a database constraint.
  *
  * Pure. Randomness is injected, so tests are deterministic and the caller owns
  * the source.
@@ -17,7 +21,7 @@
 
 import { ADJECTIVES, NOUNS } from './words.js';
 
-/** Bounds for a purchased name. Long enough to be a name, short enough for a card. */
+/** Bounds for a chosen name. Long enough to be a name, short enough for a card. */
 export const MIN_LENGTH = 3;
 export const MAX_LENGTH = 24;
 
@@ -29,7 +33,7 @@ export const MAX_LENGTH = 24;
  * - **Routes.** Every path segment ADR 0008 uses. A name that shadows a route
  *   is not an impersonation problem, it is a broken site.
  * - **Identity.** The project, the model, and the company. A profile at
- *   `/u/anthropic` is a claim to be someone, whoever paid for it.
+ *   `/u/anthropic` is a claim to be someone, whoever holds it.
  * - **Authority.** Words that make a stranger's page look official.
  */
 export const RESERVED: ReadonlySet<string> = new Set([

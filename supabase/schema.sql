@@ -1,56 +1,35 @@
--- Wick relay schema.
+-- Wick leaderboard schema.
 --
 -- Every column exists because something reads it. What is *absent* is as
 -- deliberate as what is here, so the notable omissions are called out inline
 -- rather than left for someone to helpfully add later.
 --
+-- Two tables, and that is the whole database. The Telegram-era schema had five:
+-- `connections` mapped bot tokens to chats, `codes` held the short-lived
+-- connect codes, and `rename_codes` held proof of a payment. Enrolment happens
+-- from the extension now — one token is one participant — so there is nothing
+-- to reconcile a chat against and no code to exchange for anything.
+--
 -- Apply with: supabase db push, or paste into the SQL editor.
 
 -- ---------------------------------------------------------------------------
--- Connections: the address book.
--- ---------------------------------------------------------------------------
-
-create table if not exists connections (
-  -- The token itself is never stored. A stolen database must not yield working
-  -- credentials, so this is sha256(token) and the relay hashes on the way in.
-  token_hash  text primary key,
-  chat_id     bigint not null,
-  -- Day granularity, deliberately. A precise timestamp on a row that is touched
-  -- whenever an alert is sent would be a log of when the user was working.
-  created_on  date not null default current_date,
-  last_used_on date not null default current_date
-);
-
-create index if not exists connections_chat_id_idx on connections (chat_id);
-
--- ---------------------------------------------------------------------------
--- Codes: short-lived, single-use, and destroyed after five guesses.
--- ---------------------------------------------------------------------------
-
-create table if not exists codes (
-  code       text primary key,
-  chat_id    bigint not null,
-  minted_at  timestamptz not null default now(),
-  -- Five, then the row is deleted. This is the real defence against guessing an
-  -- eight-character code: it makes the size of the search space irrelevant.
-  attempts   smallint not null default 0
-);
-
--- A timestamp is acceptable here and nowhere else: a code lives ten minutes and
--- is deleted on redemption, so it never becomes a history of anything.
-create index if not exists codes_minted_at_idx on codes (minted_at);
-
--- ---------------------------------------------------------------------------
--- Profiles: one per chat, however many installations it has.
+-- Profiles: one per participant token.
 -- ---------------------------------------------------------------------------
 
 create table if not exists profiles (
-  chat_id      bigint primary key,
+  -- The token itself is never stored. A stolen database must not yield working
+  -- credentials, so this is sha256(token) and the server hashes on the way in.
+  -- It is also the identity: there is no account, no email and no handle, and
+  -- nothing here can recover a lost token. That is the point.
+  token_hash   text primary key,
   name         text not null,
   -- The confusable-folded form. Uniqueness is decided on this, never on `name`,
   -- or `ash`, `Ash`, `a5h` and `as_h` become four rows that read as one person.
+  --
+  -- Load-bearing beyond display: enrolment inserts a proposed name and lets
+  -- this constraint reject the collision, rather than reading first and then
+  -- writing. Drop the uniqueness and two concurrent joins can take one name.
   name_folded  text not null unique,
-  digest       boolean not null default false,
   created_on   date not null default current_date
 );
 
@@ -59,42 +38,28 @@ create table if not exists profiles (
 -- ---------------------------------------------------------------------------
 
 create table if not exists daily_rows (
-  token_hash      text not null,
-  -- A local calendar day as the reporter saw it. Not converted, because the
-  -- relay never learns the submitter's timezone and has nothing to convert with.
-  day             date not null,
-  input           bigint not null,
-  output          bigint not null,
-  cache_creation  bigint not null,
-  cache_read      bigint not null,
-  sessions        integer not null,
+  token_hash  text not null references profiles (token_hash) on delete cascade,
+  -- A local calendar day as the extension saw it. Not converted, because the
+  -- server never learns the submitter's timezone and has nothing to convert
+  -- with.
+  day         date not null,
+  -- Messages sent that day. **This is the only usage figure the board holds.**
+  -- Not percentages, which do not compare across plans; not tokens, which the
+  -- extension cannot count and is forbidden from estimating; and not times of
+  -- day, which it records locally and never sends.
+  messages    integer not null check (messages >= 0),
 
   -- The composite key is load-bearing. A resubmission *replaces* the day rather
-  -- than adding to it, so a retried hook corrects a total instead of inflating
-  -- it. Upsert on conflict, never insert.
+  -- than adding to it, so a retried request corrects a total instead of
+  -- inflating it. Upsert on conflict, never insert.
   primary key (token_hash, day)
 );
 
 -- **No created_at on this table, on purpose.** Supabase's table editor adds one
 -- by default. Here it would turn a daily aggregate into a record of exactly when
--- somebody was working, which is the one thing the relay promises not to keep.
+-- somebody was working, which is the one thing the board promises not to keep.
 
 create index if not exists daily_rows_day_idx on daily_rows (day);
-
--- ---------------------------------------------------------------------------
--- Rename codes: proof of payment, holding no payment identity.
--- ---------------------------------------------------------------------------
-
-create table if not exists rename_codes (
-  code         text primary key,
-  redeemed     boolean not null default false,
-  created_on   date not null default current_date,
-  -- The processor's session id, kept only long enough to answer a chargeback.
-  -- It is NOT joined to a profile and must never be: the anonymity argument
-  -- rests on nothing connecting a payment to a name. Delete on the schedule the
-  -- privacy policy states.
-  payment_ref  text
-);
 
 -- ---------------------------------------------------------------------------
 -- Row level security.
@@ -102,15 +67,12 @@ create table if not exists rename_codes (
 --
 -- Enabled with **no policies at all**, which denies everything. Authorisation
 -- happens in the serverless functions, which hold the service-role key and
--- bypass RLS; the relay's identity model is possession of a bearer token bound
--- to a Telegram chat, and RLS cannot express that.
+-- bypass RLS; the board's identity model is possession of a bearer token whose
+-- hash is a primary key, and RLS cannot express that.
 --
 -- So this is defence in depth rather than the access control itself: if the
 -- anon key ever leaks, or is pasted into client code by accident, it yields
 -- nothing instead of the entire leaderboard.
 
-alter table connections   enable row level security;
-alter table codes         enable row level security;
-alter table profiles      enable row level security;
-alter table daily_rows    enable row level security;
-alter table rename_codes  enable row level security;
+alter table profiles    enable row level security;
+alter table daily_rows  enable row level security;

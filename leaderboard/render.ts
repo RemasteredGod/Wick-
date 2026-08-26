@@ -17,7 +17,7 @@
  * they can be shared, bookmarked and cached individually.
  */
 
-import { SELF_REPORTED_LABEL } from './profile.js';
+import { SELF_REPORTED_LABEL, type ProfileCard } from './profile.js';
 import type { Period } from './periods.js';
 import type { Standing } from './ranking.js';
 
@@ -91,10 +91,8 @@ export function renderBoard({ period, standings, today }: BoardPage): string {
   <td class="rank">${String(standing.rank).padStart(2, '0')}</td>
   <td class="handle">${escapeHtml(standing.name)}</td>
   <td class="bar"><span style="width:${String(width)}%"></span></td>
-  <td class="num strong">${group(standing.counters.output)}</td>
-  <td class="num">${group(standing.counters.input)}</td>
-  <td class="num faint hide-sm">${group(standing.counters.cacheRead)}</td>
-  <td class="num hide-sm">${group(standing.sessions)}</td>
+  <td class="num strong">${group(standing.ranked)}</td>
+  <td class="num hide-sm">${group(standing.days)}</td>
   <td class="meta hide-sm">${ago(standing.lastDay, today)}</td>
 </tr>`;
     })
@@ -113,8 +111,7 @@ export function renderBoard({ period, standings, today }: BoardPage): string {
       : `<div class="scroll"><table>
 <thead><tr>
   <th class="rank">Rank</th><th>Handle</th><th></th>
-  <th class="num">Output</th><th class="num">Input</th>
-  <th class="num hide-sm">Cache reads</th><th class="num hide-sm">Sessions</th>
+  <th class="num">Messages</th><th class="num hide-sm">Days</th>
   <th class="hide-sm">Last</th>
 </tr></thead>
 <tbody>
@@ -126,8 +123,9 @@ ${rows}
     `<header class="head">
   <div class="eyebrow">${mark()} Wick · opt-in leaderboard</div>
   <h1>Who's burning fastest</h1>
-  <p class="sub">Claude Code token usage, reported by people who chose to share it.
-  Ranked on input plus output. Cache reads are shown and counted towards nothing.</p>
+  <p class="sub">Messages sent to Claude, reported by people who chose to share it.
+  Ranked on the count alone — days are shown so a week reads differently from an
+  afternoon, and are not part of the order.</p>
 </header>
 
 <nav class="tabs">${tabs}<span class="chip">${SELF_REPORTED_LABEL}</span></nav>
@@ -135,12 +133,91 @@ ${rows}
 ${body}
 
 <footer class="foot">
-  <p><strong>What gets shared.</strong> A day, four token counters and a session count.
-  Nothing about conversations, projects, paths or prompts. Handles are assigned, not chosen.</p>
+  <p><strong>What gets shared.</strong> A calendar day and how many messages were
+  sent on it. Nothing about conversations, projects, models or times of day, and no
+  percentage of anyone's limit. Handles are assigned, not chosen.</p>
   <p>${SELF_REPORTED_LABEL} These figures come from software running on each
   participant's own machine and cannot be verified.</p>
   <p><a href="/">About Wick</a> · <a href="https://github.com/RemasteredGod/Wick-">Source</a></p>
 </footer>`,
+  );
+}
+
+/**
+ * One participant's page, at `/u/<name>`.
+ *
+ * ADR 0008's shape, finally routed. The card was written before there was
+ * anywhere to put it; `buildCard` decides what may appear and this only draws
+ * it, so a new field is a change to profile.ts and an ADR rather than a line of
+ * markup here.
+ *
+ * The self-reported label is not a caller's choice and is rendered twice: once
+ * as the chip beside the name and once in the footer. These figures come from
+ * software on somebody's own machine, and a page that ranks people has to keep
+ * saying it cannot check them.
+ */
+export function renderProfile(card: ProfileCard, today: string): string {
+  const lines = card.standings
+    .map(
+      (line) => `<tr>
+  <td class="handle">${PERIOD_LABELS[line.period]}</td>
+  <td class="rank">#${String(line.rank)}</td>
+  <td class="num strong">${group(line.ranked)}</td>
+</tr>`,
+    )
+    .join('\n');
+
+  const body =
+    card.standings.length === 0
+      ? `<p class="empty">No submissions yet.</p>`
+      : `<div class="scroll"><table>
+<thead><tr><th>Period</th><th class="rank">Rank</th><th class="num">Messages</th></tr></thead>
+<tbody>
+${lines}
+</tbody></table></div>`;
+
+  return page(
+    `${card.name} — Wick leaderboard`,
+    `<header class="head">
+  <div class="eyebrow">${mark()} Wick · opt-in leaderboard</div>
+  <h1>${escapeHtml(card.name)}</h1>
+  <p class="sub">${group(card.messages)} messages across ${group(card.days)}
+  ${card.days === 1 ? 'day' : 'days'}${card.streak > 1 ? `, ${group(card.streak)} in a row` : ''}.
+  Last seen ${ago(card.lastDay, today)}.</p>
+</header>
+
+<nav class="tabs"><a href="/board">Back to the board</a><span class="chip">${card.label}</span></nav>
+
+${body}
+
+<footer class="foot">
+  <p><strong>What this page holds.</strong> A name the board assigned, and how many
+  messages were reported on each day. Nothing about conversations, projects, models or
+  times of day, and nothing joined to any Claude account.</p>
+  <p>${card.label} These figures come from software running on this participant's own
+  machine and cannot be verified.</p>
+  <p><a href="/">About Wick</a> · <a href="https://github.com/RemasteredGod/Wick-">Source</a></p>
+</footer>`,
+  );
+}
+
+/**
+ * The page for a name nobody holds.
+ *
+ * A 404 that says so plainly. It deliberately does not distinguish "never
+ * existed" from "left the board" — a page that told you which would let anyone
+ * enumerate who had quit.
+ */
+export function renderMissingProfile(): string {
+  return page(
+    'Not found — Wick leaderboard',
+    `<header class="head">
+  <div class="eyebrow">${mark()} Wick · opt-in leaderboard</div>
+  <h1>No such profile</h1>
+  <p class="sub">Nobody on the board goes by that name.</p>
+</header>
+
+<nav class="tabs"><a href="/board" class="on">See the board</a></nav>`,
   );
 }
 
@@ -233,7 +310,8 @@ export function renderLanding(): string {
   <div class="eyebrow">${mark()} Wick</div>
   <h1>Know before you run out</h1>
   <p class="sub">A Chrome extension that tracks your Claude usage limits and tells you
-  when you will hit them &mdash; in the sidebar, on the toolbar, and on Telegram if you want it.</p>
+  when you will hit them &mdash; in the sidebar, on the toolbar, and as a notification
+  before you get there.</p>
 </header>
 
 <nav class="tabs">
@@ -251,17 +329,17 @@ export function renderLanding(): string {
 
 <div class="scroll" style="padding:22px 20px;margin-top:12px">
   <p class="foot" style="margin:0;max-width:none">
-    <strong>Alerts with no server.</strong> Telegram alerts go straight from your browser
-    to a bot you create yourself. Nothing passes through anyone else's infrastructure,
-    and there is no account to make.
+    <strong>Alerts with no setup.</strong> Threshold warnings arrive as browser
+    notifications. No account, no credential to paste, and nothing to configure before
+    they work.
   </p>
 </div>
 
 <div class="scroll" style="padding:22px 20px;margin-top:12px">
   <p class="foot" style="margin:0;max-width:none">
     <strong>An opt-in leaderboard.</strong> Separate, optional, and off by default.
-    It ranks Claude Code token usage reported by a command-line tool you install
-    deliberately. <a href="/board">See the board</a>.
+    One number a day &mdash; how many messages you sent &mdash; published under a name
+    the board assigns you. <a href="/board">See the board</a>.
   </p>
 </div>
 

@@ -10,13 +10,11 @@ import { HistoryStrip } from './components/HistoryStrip';
 import { Mark } from './components/Mark';
 import { Projection } from './components/Projection';
 import { Settings } from './components/Settings';
-import { TelegramCard } from './components/TelegramCard';
+import { BoardCard } from './components/BoardCard';
 import { UsageMeter } from './components/UsageMeter';
 import {
-  connectTelegram,
-  disconnectTelegram,
-  finishTelegram,
-  testTelegram,
+  joinBoard,
+  leaveBoard,
   useWickState,
 } from './useWickState';
 
@@ -50,10 +48,8 @@ export function App() {
       <Settings
         settings={state.settings}
         onChange={update}
-        onConnect={connectTelegram}
-        onFinish={finishTelegram}
-        onTest={testTelegram}
-        onDisconnect={disconnectTelegram}
+        onJoin={joinBoard}
+        onLeave={leaveBoard}
         onClose={() => setSettingsOpen(false)}
         version={chrome.runtime.getManifest().version}
       />
@@ -128,10 +124,10 @@ export function App() {
 
         <div class="wick-rule" />
 
-        <TelegramCard
-          connected={state.settings.botToken !== null && state.settings.chatId !== null}
-          threshold={state.settings.alertThreshold}
-          alsoOnReset={state.settings.alertOnReset}
+        <BoardCard
+          enrolled={state.settings.boardToken !== null}
+          name={state.settings.boardName}
+          today={messagesToday(state.history, now)}
         />
       </div>
 

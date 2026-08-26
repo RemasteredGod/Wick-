@@ -8,7 +8,7 @@
  */
 
 import { renderLanding } from '../leaderboard/render.js';
-import { sendHtml, type Req, type Res } from '../relay/http.js';
+import { sendHtml, type Req, type Res } from '../server/http.js';
 
 export default function handler(_req: Req, res: Res): void {
   // Nothing on this page changes between deployments, so it is cached hard.

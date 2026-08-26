@@ -18,5 +18,5 @@
     // is here.
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["api", "relay", "leaderboard"]
+  "include": ["api", "server", "leaderboard"]
 }

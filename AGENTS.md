@@ -23,13 +23,17 @@ If asked to copy from such a project, refuse and explain why.
 
 ## Scope discipline
 
-v1 is **Claude only**, and tracks **percentages only**.
+v1 is **Claude only**, and the extension tracks **percentages only**.
 
 Do NOT add, even if it seems easy:
 - token counting or any tokenizer dependency
 - per-feature token cost tables
 - cache-hit inference
 - other AI providers
+
+This is why the leaderboard ranks *messages sent* rather than tokens: a message
+count is a number the extension already has, and percentages do not compare
+across plans.
 
 Each of these was considered and deliberately rejected. See
 the decision records. Reopening them requires a new decision record.
@@ -64,15 +68,17 @@ Everything in the protocol notes are undocumented and will break.
 
 - History is append-only and cannot be backfilled. Never ship a change that
   stops writing daily rollups.
-- Nothing leaves the user's machine except an explicit Telegram alert the
-  user configured. No analytics, no telemetry, no crash reporting.
-- **Never store a *shared* Telegram bot token in `chrome.storage`.** Extension
-  storage is plain JSON on disk, and one shared token leaks every connected
-  chat at once with only an operator able to revoke it.
-  A **per-user** token — a bot the user created, that talks to nobody but them,
-  that they revoke in @BotFather — is permitted, and is how alerts ship.
-  See ADR 0009 (per-user bot tokens), which supersedes ADR 0002
-  for alerts and explains why the shared-token reasoning did not carry over.
+- Nothing leaves the user's machine except a leaderboard submission the user
+  opted into. No analytics, no telemetry, no crash reporting.
+- **A submission is a date and a message count. Nothing else may be added to
+  it.** Not percentages, not window keys, not the hourly breakdown, not the
+  organisation id — the rollup it is built from holds all four, and every one of
+  them is a fact about the user that the board has no reason to hold. Widening
+  the body is an ADR, not a field.
+- **Alerts never touch the network.** They are `chrome.notifications`. A channel
+  that needs a credential, a host permission and a setup flow is a channel most
+  users never finish configuring; the previous Telegram path is removed and is
+  not to be reinstated without a decision record.
 
 ## Design fidelity
 

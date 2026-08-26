@@ -30,6 +30,8 @@ function listenerSet<T extends unknown[]>() {
     emit: (...args: T) => {
       for (const fn of [...listeners]) fn(...args);
     },
+    /** Emit and collect what each listener returned. See `sendToWorker`. */
+    emitCollect: (...args: T) => [...listeners].map((fn) => fn(...args) as unknown),
     count: () => listeners.size,
   };
 }
@@ -67,6 +69,14 @@ export interface FakeChrome {
   notifications: unknown[];
   /** Alarms created, by name. */
   alarms: Map<string, chrome.alarms.AlarmCreateInfo>;
+  /**
+   * Optional host permissions currently granted.
+   *
+   * Empty by default, which is the state a fresh install is in: every module
+   * behind an optional grant must work — by doing nothing — before the user has
+   * agreed to anything. Add a pattern to grant it.
+   */
+  grantedOrigins: Set<string>;
   /** Fire the alarm listener for `name`. */
   fireAlarm(name: string): void;
   /** Deliver a runtime message to registered listeners; resolves with the reply. */
@@ -89,6 +99,7 @@ export function installChromeMock(): FakeChrome {
   const iconCalls: unknown[] = [];
   const notifications: unknown[] = [];
   const alarms = new Map<string, chrome.alarms.AlarmCreateInfo>();
+  const grantedOrigins = new Set<string>();
 
   const onChanged = listenerSet<[Record<string, StorageChange>, string]>();
   const onAlarm = listenerSet<[chrome.alarms.Alarm]>();
@@ -170,6 +181,17 @@ export function installChromeMock(): FakeChrome {
         return Promise.resolve('id');
       },
     },
+    permissions: {
+      contains: ({ origins = [] }: { origins?: string[] } = {}) =>
+        Promise.resolve(origins.every((origin) => grantedOrigins.has(origin))),
+      // `request` needs a user gesture in the browser and cannot be reached
+      // from a worker at all. Tests that need a grant set `grantedOrigins`
+      // directly rather than pretending a click happened.
+      request: ({ origins = [] }: { origins?: string[] } = {}) => {
+        for (const origin of origins) grantedOrigins.add(origin);
+        return Promise.resolve(true);
+      },
+    },
     runtime: {
       id: 'wick-test',
       getURL: (path: string) => `chrome-extension://wick-test/${path}`,
@@ -205,6 +227,7 @@ export function installChromeMock(): FakeChrome {
     iconCalls,
     notifications,
     alarms,
+    grantedOrigins,
     fireAlarm(name) {
       onAlarm.emit({ name, scheduledTime: Date.now() } as chrome.alarms.Alarm);
     },
@@ -215,9 +238,19 @@ export function installChromeMock(): FakeChrome {
           replied = true;
           resolve(response);
         };
-        onMessage.emit(message, {} as chrome.runtime.MessageSender, reply);
-        // A listener that returns without replying resolves undefined, which is
-        // what chrome does when nothing keeps the channel open.
+
+        // A listener that returns `true` is telling Chrome to hold the reply
+        // channel open across an await. Honouring that is what makes an
+        // asynchronous handler testable through this bus at all: without it,
+        // the microtask below resolves `undefined` before the handler has
+        // finished, and every async listener looks like it answered nothing.
+        const held = onMessage
+          .emitCollect(message, {} as chrome.runtime.MessageSender, reply)
+          .some((returned) => returned === true);
+        if (held) return;
+
+        // Nothing kept the channel open, which is chrome's own behaviour: the
+        // caller sees undefined.
         queueMicrotask(() => {
           if (!replied) resolve(undefined);
         });
@@ -231,6 +264,7 @@ export function installChromeMock(): FakeChrome {
       iconCalls.length = 0;
       notifications.length = 0;
       alarms.clear();
+      grantedOrigins.clear();
     },
   };
 }

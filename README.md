@@ -18,13 +18,13 @@ machine. The projection needs something to project from, and the record doubles
 as a view of your own patterns. History is written from the first release — it
 cannot be backfilled.
 
-**Telegram alerts.** Threshold crossings pushed to your phone, so you never have
-to open the popup to find out you are nearly out.
+**Alerts that need no setup.** Threshold crossings arrive as browser
+notifications, so you never have to open the popup to find out you are nearly
+out. No account, no credential, no server.
 
-**Optional Claude Code leaderboard.** The separate `wick-cc` reporter reads only
-first-party usage counters from local Claude Code transcripts, aggregates them
-on the machine, and can publish daily totals to a public, self-reported board.
-It is off until the user explicitly opts in.
+**Optional leaderboard.** One number a day — how many messages you sent —
+published under a name the board assigns you. Off until you press Join, and
+Leave deletes everything you published.
 
 The toolbar icon is a gauge, not a logo. It depletes and changes colour as you
 consume quota, so status is readable without clicking.
@@ -33,12 +33,9 @@ consume quota, so status is readable without clicking.
 
 Wick does not estimate tokens. It has no tokenizer and no table of per-feature
 costs. claude.ai's server already computes a percentage per limit window, and
-the extension reads that number. The separate `wick-cc` reporter likewise uses
-only token counts already written by Claude Code's API; it never estimates a
-missing count. See
-ADR 0001
-and
-ADR 0005.
+the extension reads that number. The leaderboard ranks message counts for the
+same reason: it is a number the extension already has, rather than one it would
+have to invent. See ADR 0001.
 
 ## Status
 
@@ -46,14 +43,16 @@ Early, but no longer a shell. The extension builds, loads, collects, projects
 and draws its own toolbar gauge, and every number on screen comes from
 `chrome.storage.local` rather than from a placeholder.
 
-Alerts need no server: you create a bot with @BotFather and Wick posts to it
-directly (ADR 0009). One thing still requires account access outside this
-repository — the protocol has not been checked against live traffic. The
-leaderboard, its relay and the standalone reporter are v2 and not required to
-run the extension. Until live protocol verification is done, treat extension
-readings as provisional —
-the protocol notes are a hypothesis about undocumented behaviour, and it says so
-on its first line.
+Alerts need no server and no setup — they are browser notifications. One thing
+still requires account access outside this repository: the protocol has not been
+checked against live traffic. Until that is done, treat extension readings as
+provisional — the protocol notes are a hypothesis about undocumented behaviour,
+and they say so on the first line.
+
+The leaderboard is not required to run the extension. Its code is complete and
+its pages render, but it has not been deployed, so Join reports the board as
+unavailable until a Supabase project and the two environment variables behind it
+exist.
 
 | Milestone | |
 |---|---|
@@ -62,8 +61,8 @@ on its first line.
 | M3 | Real data — collector, store, polling — done |
 | M4 | Daily history and the projection engine — done |
 | M5 | Toolbar gauge rendering — done |
-| M6 | Telegram alerts — direct to the user's own bot, no server (ADR 0009) — done |
-| M7 | Claude Code reporter and self-reported leaderboard — implemented; deployment and package publication outstanding |
+| M6 | Threshold alerts as local notifications — done |
+| M7 | Self-reported leaderboard, fed by the extension — implemented; **deployment outstanding** |
 
 Gemini and ChatGPT support, and cross-model conversation handoff, are on the
 roadmap beyond v1. They are not being built now.
@@ -108,18 +107,18 @@ pnpm test
 Host access is `https://claude.ai/*` and nothing else. Wick does not request
 `<all_urls>`.
 
-One host permission is *optional*: `api.telegram.org`. It is not part
-of the install prompt, and Wick asks for it from the Connect button in settings
-— so if you never set up Telegram alerts you are never asked, and if you change
-your mind Chrome lets you take it back. Everything else in the extension works
-without it.
+One host permission is *optional*: the leaderboard's own origin. It is not part
+of the install prompt, and Wick asks for it from the Join button in settings —
+so if you never join the board you are never asked, and if you change your mind
+Chrome lets you take it back. Everything else in the extension works without
+it.
 
 ## Privacy
 
-Browser usage stays local by default. Telegram alerts and aggregate Claude Code
-leaderboard submissions leave the machine only after their separate, explicit
-setup and opt-in steps. No analytics, telemetry, or crash reporting. See
-[`PRIVACY.md`](PRIVACY.md).
+Everything stays local by default. Alerts are browser notifications and involve
+no network at all. The only thing that ever leaves the machine is a daily
+message count, and only after you press Join. No analytics, telemetry, or crash
+reporting. See [`PRIVACY.md`](PRIVACY.md).
 
 ## Architecture
 
@@ -140,6 +139,16 @@ collector → store → projection → presentation
 
 Provider-specific logic is confined to `src/providers/`. Adding another provider
 should mean writing one file.
+
+The leaderboard is a separate deployment sharing the repo, and shares no code
+with the extension:
+
+- **`leaderboard/`** — pure logic. The metric, the periods, the assigned names,
+  the page renderers. No I/O, no database, no `process`.
+- **`server/`** — the `BoardStore` port and its Supabase adapter, over PostgREST
+  with no SDK.
+- **`api/`** — five Vercel functions: the landing page, the board, a profile,
+  and the enrol/submit/leave endpoints the extension calls.
 
 Contributors and AI agents: read [`AGENTS.md`](AGENTS.md) before your first
 change. It records constraints — including a clean-room rule — that are not

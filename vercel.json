@@ -11,6 +11,7 @@
   },
   "rewrites": [
     { "source": "/", "destination": "/api/landing" },
-    { "source": "/board", "destination": "/api/board" }
+    { "source": "/board", "destination": "/api/board" },
+    { "source": "/u/:name", "destination": "/api/profile" }
   ]
 }

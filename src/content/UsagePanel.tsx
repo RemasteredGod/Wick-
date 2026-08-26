@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { remainingFor } from '~/assets/mark';
+import { messagesToday } from '~/core/history';
 import { thresholdState } from '~/core/normalise';
 import { allowanceWindow } from '~/core/windows';
 import type {
@@ -13,7 +14,7 @@ import { HistoryStrip } from '~/popup/components/HistoryStrip';
 import { Mark } from '~/popup/components/Mark';
 import { Projection } from '~/popup/components/Projection';
 import { Settings } from '~/popup/components/Settings';
-import { TelegramCard } from '~/popup/components/TelegramCard';
+import { BoardCard } from '~/popup/components/BoardCard';
 import { UsageMeter } from '~/popup/components/UsageMeter';
 import { panelAnchor, setPanelOpen, usePanelOpen } from './panel';
 
@@ -36,12 +37,13 @@ interface UsagePanelProps {
   settings: SettingsValues;
   onChange(patch: Partial<SettingsValues>): void;
   /**
-   * Revoke the relay token. There is deliberately no `onConnect` counterpart:
-   * connecting needs `chrome.permissions.request`, and a content script has no
-   * access to `chrome.permissions` and no way to get one. The settings screen
-   * says so rather than offering a field that cannot work.
+   * There are deliberately no `onJoin` or `onLeave` props.
+   *
+   * Both need `chrome.permissions.request`, and a content script has no access
+   * to `chrome.permissions` and no way to get one. The settings screen says so
+   * rather than offering a button that cannot work — see its `onJoin === undefined`
+   * branch.
    */
-  onDisconnect?: () => void;
   now: number;
 }
 
@@ -72,7 +74,6 @@ export function UsagePanel({
   projection,
   settings,
   onChange,
-  onDisconnect,
   now,
 }: UsagePanelProps) {
   const open = usePanelOpen();
@@ -167,10 +168,10 @@ export function UsagePanel({
 
           <div class="wick-rule" />
 
-          <TelegramCard
-            connected={settings.botToken !== null && settings.chatId !== null}
-            threshold={settings.alertThreshold}
-            alsoOnReset={settings.alertOnReset}
+          <BoardCard
+            enrolled={settings.boardToken !== null}
+            name={settings.boardName}
+            today={messagesToday(history, now)}
           />
         </div>
 
@@ -194,7 +195,6 @@ export function UsagePanel({
             <Settings
               settings={settings}
               onChange={onChange}
-              {...(onDisconnect === undefined ? {} : { onDisconnect })}
               onClose={() => setSettingsOpen(false)}
               version={chrome.runtime.getManifest().version}
             />

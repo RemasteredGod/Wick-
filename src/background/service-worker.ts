@@ -8,16 +8,16 @@
  *
  * The modules below do not know about each other. The collector writes to the
  * store; the icon renderer and the alert dispatcher each subscribe to storage
- * changes; the inbox rides the same polling alarm to answer bot commands.
- * Adding another consumer means writing one file and adding one line here.
+ * changes; the board reporter rides the same polling alarm to publish yesterday's
+ * count. Adding another consumer means writing one file and adding one line here.
  */
 
 import { initAlerts } from './alerts';
+import { initBoard } from './board';
 import { initCollector } from './collector';
 import { initIcon } from './icon';
-import { initInbox } from './inbox';
 
 initCollector();
 initIcon();
 initAlerts();
-initInbox();
+initBoard();

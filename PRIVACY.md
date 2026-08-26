@@ -1,9 +1,8 @@
 # Privacy
 
-Short version: Wick keeps browser usage data on your machine. Two optional
-features send data elsewhere only after you set them up: Telegram alerts send
-the alert you configured, and the separate `wick-cc` reporter sends aggregate
-Claude Code token totals after you opt into the public leaderboard.
+Short version: Wick keeps your browser usage data on your machine. One optional
+feature sends anything elsewhere — the public leaderboard, which publishes a
+daily message count under an assigned name after you press Join.
 
 ## Browser extension data
 
@@ -12,103 +11,84 @@ profile:
 
 - **Current snapshot** — the latest percentage, status, and reset time for each
   limit window.
-- **Daily history** — the date, peak percentage per window, and a message count,
-  used for the burn-rate projection.
-- **Settings** — display and alert preferences and, if you set up alerts, the
-  Telegram bot token you created, the chat id it sends to, and a display label.
+- **Daily history** — the date, peak percentage per window, a message count, and
+  an hourly breakdown of that count, used for the burn-rate projection and the
+  panel's statistics.
+- **Settings** — display and alert preferences and, if you joined the
+  leaderboard, the participant token the board issued, the name it assigned, and
+  the last day already published.
 
 It does not store conversation content, prompts, responses, or titles. By
 default it makes no network request other than to claude.ai: there is no
 analytics, telemetry, crash reporting, usage reporting, or phone-home on install
 or update.
 
-## Optional Telegram alerts
+## Alerts
 
-If you connect Telegram, the extension sends an alert when a threshold or reset
-you configured occurs. The alert contains the percentage, pace, and projected
-exhaustion time shown locally. It contains no prompt, response, or project data.
+Threshold and reset alerts are Chrome notifications, raised locally by the
+extension. **They involve no network request, no server, no account, and no
+credential**, and they cannot be read by anyone but you.
 
-**Alerts go straight from your browser to `https://api.telegram.org`. There is
-no Wick server in the path, and no operator who can see that you received an
-alert or when.**
+There is no longer a Telegram alert channel. Earlier versions offered one, using
+a bot token you created and pasted; it has been removed, along with the
+`api.telegram.org` host permission it needed. If you set one up under a previous
+version, the token is no longer read, and removing the extension deletes it
+along with everything else in local storage.
 
-This works because you create the bot yourself with @BotFather, and Wick stores
-that token in `chrome.storage.local`. Being straightforward about what that
-means: **extension storage is plain JSON on disk, not a vault.** Any program
-running as you can read it. Two things bound what that costs you — the bot is
-yours and talks to nobody but you, and anything able to read that file can
-already read your claude.ai session cookies sitting beside it. You can revoke
-the token at any time in @BotFather, which stops it working everywhere, not just
-here. See
-ADR 0009.
+## Optional leaderboard
 
-Wick reads Telegram twice. Once during setup, to learn which chat to send to —
-you are never asked to look up a chat id. And once per polling tick, so the bot
-can answer `/weekly` and `/daily` without a server. **It only ever replies to
-the chat you connected**; a bot username is public, and a message from anyone
-else is read and discarded rather than answered.
+The board is off until you press Join in settings. Nothing about it leaves your
+machine before that.
 
-The Telegram origin is an optional Chrome host permission requested only from
-the Connect button. Declining or revoking it blocks alerts without affecting
-collection, projections, the toolbar icon, or local notifications.
+**Joining** asks `https://www.usewick.lol` for a participant token and a name.
+The request carries an empty body: no email, no handle, no account id, nothing
+from claude.ai. The board assigns your name from a fixed word list — it is not
+derived from anything about you, and nothing on the board is joined to your
+Claude identity. Because the token is the only thing identifying you, there is
+no way to recover it if you lose it and no way for anyone, including the
+operator, to work out whose profile is whose.
 
-## Optional Claude Code leaderboard
+**Each day**, the extension publishes one row: a calendar date and how many
+messages you sent on it. That is the entire submission. It does not send
+percentages, window names, reset times, the hourly breakdown, your organisation
+id, model names, project names, prompts, or responses. Only settled days are
+sent — today is never published, because it is still accumulating.
 
-The leaderboard is a separate opt-in feature provided by the standalone
-`wick-cc` command-line reporter. Installing or logging into that reporter does
-not enable submissions; `wick-cc optin` is required.
+The server stores, per participant:
 
-The reporter reads Claude Code's local JSONL transcripts but accepts only the
-record type and timestamp, message ID/role/model, and the four first-party API
-usage counters. It uses those fields to validate, deduplicate, date, and
-aggregate locally. It does not read for product use or transmit prompts,
-responses, tool calls, working directories, project/repository names, or file
-paths. Missing counts are skipped, never estimated.
+- the SHA-256 hash of the participant token — never the token itself;
+- the assigned name, and its confusable-folded form;
+- the date each profile was created, to day granularity;
+- one row per calendar day: the day and the message count.
 
-A submission contains one local calendar day, one daily session count, and
-bounded per-model-family totals for input, output, cache creation, and cache read
-tokens. The relay sums the families and stores only:
+It does not store a submission timestamp, an IP address, an account or
+organisation id, or anything finer than a calendar day. Re-submitting the same
+day replaces the row rather than adding to it.
 
-- the submitting token's SHA-256 hash and the Telegram-chat-scoped profile;
-- the chosen public display name;
-- the day;
-- aggregate input, output, cache creation, cache read, and session totals;
-- whether the user explicitly enabled the weekly digest;
-- day/week-granularity state needed to avoid duplicate digests.
+The public pages at `https://usewick.lol` — the board at `/board` and each
+profile at `/u/<name>` — publish the assigned name, the message totals for the
+week, month, and all time, the number of days behind each total, and the last
+day submitted. Every board is labelled **self-reported**, because these figures
+come from software on each participant's own machine and cannot be verified. The
+pages have no analytics, cookies, client-side application, or third-party
+assets, and are cached for 60 seconds.
 
-It does not store family/model IDs, message IDs, project or repository names,
-paths, prompts, responses, per-session rows, Claude account or organisation IDs,
-or a submission timestamp. Re-submitting the same token and day replaces the
-row rather than adding to it.
-
-The public page at `https://usewick.lol` publishes the chosen display
-name and aggregate week, month, or all-time totals and last submitted day. It
-labels every board **self-reported** because the figures cannot be independently
-verified. The page has no analytics, cookies, client-side application, or
-third-party assets and is cached for 60 seconds.
-
-The weekly Telegram leaderboard digest is off by default and is sent only after
-`/digest on`.
-
-See
-ADR 0005
-and ADR 0006.
+The board origin is an optional Chrome host permission, requested only from the
+Join button. Declining or revoking it blocks the board without affecting
+collection, projections, the toolbar icon, or notifications.
 
 ## Hosting logs
 
-Cloudflare keeps a platform request log under its account policy. It can include
-a timestamp, route, status, user agent, and client IP. Retention must be set to
-the shortest available period, and Wick configures no log drain, export, or
-third-party error tracker. Application code logs no request bodies, alert text,
-submission values, tokens or hashes, or Telegram chat IDs.
+Vercel keeps a platform request log under its account policy. It can include a
+timestamp, route, status, user agent, and client IP. Retention is set to the
+shortest available period, and Wick configures no log drain, export, or
+third-party error tracker. Application code logs no request bodies, submission
+values, tokens, or hashes.
 
-A reporter retry or changed same-day total can create more than one short-lived
-platform log entry even though D1 keeps only one logical daily value. Anyone who
-does not accept that should leave Telegram disconnected and not opt into the
-leaderboard; all extension tracking remains local.
-
-Telegram separately stores bot messages under Telegram's policies. Bot chats
-are not end-to-end encrypted.
+For the length of that retention window, the host's own log records that
+*someone* published a day, from which IP — not who, since the token never
+appears in a URL. Anyone who does not accept that should not join the board; all
+extension tracking remains local either way.
 
 ## What the extension reads from claude.ai
 
@@ -118,30 +98,24 @@ are not end-to-end encrypted.
 - The tail of completion responses, where claude.ai reports limit state. Wick
   extracts that event and discards the rest.
 
-Required host access is restricted to `https://claude.ai/*`. The optional Telegram
+Required host access is restricted to `https://claude.ai/*`. The optional board
 origin is the only other host the extension can be granted.
 
 ## Deleting data
 
 - Removing the extension deletes its local browser storage.
-- Disconnect forgets the bot token and chat id locally. It does not revoke the
-  bot — only @BotFather can do that, and doing so is worth it if you think the
-  token leaked.
-- The leaderboard is a separate, optional program with its own connection.
-  Removing the extension does not delete anything you submitted to it.
-- `wick-cc optout` or Telegram `/optout` deletes the public profile and all
-  leaderboard rows while retaining alert connections.
-- `wick-cc forget`, authenticated `POST /v1/delete`, or Telegram `/forget`
-  deletes all connections, unredeemed codes, leaderboard rows/profile, and
-  pending digest state for that Telegram chat.
-
-Alerts leave no server-side trace to delete: they go straight to Telegram, and
-no Wick server is in the path. The leaderboard's platform request logs expire on
-its host's retention schedule and are not removed by these application-level
-deletion operations.
+- **Leave**, in settings, deletes your profile and every day you published, then
+  forgets the token locally. There is no tombstone and no soft delete: the name
+  returns to the pool and nothing is kept to show you were there. If the board
+  cannot be reached, nothing is cleared locally either, so you can try again.
+- Removing the extension without pressing Leave first leaves your published rows
+  on the board with no way to reach them — the token was the only thing that
+  could. Leave first.
+- The board's platform request logs expire on the host's retention schedule and
+  are not removed by these application-level deletions.
 
 ## Verifying this
 
-The extension, relay, and reporter are AGPL-3.0-or-later. Their source and D1
-schema are the specification: if this policy and the running code disagree, the
-code is the truth and the disagreement is a bug worth reporting.
+The extension and the server are AGPL-3.0-or-later. Their source and
+`supabase/schema.sql` are the specification: if this policy and the running code
+disagree, the code is the truth and the disagreement is a bug worth reporting.

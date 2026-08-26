@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { TELEGRAM_ORIGIN_PATTERN } from '~/background/telegram';
+import { BOARD_ORIGIN_PATTERN } from '~/background/board';
 import { readState, writeSettings } from '~/background/store';
-import type { ConnectOutcome, RuntimeMessage, RuntimeResponse } from '~/core/messages';
+import type { BoardOutcome, RuntimeMessage, RuntimeResponse } from '~/core/messages';
 import { DEFAULT_SETTINGS, type Settings, type WickState } from '~/core/types';
 
 /**
@@ -76,61 +76,41 @@ export function useWickState(): WickStateHandle {
 }
 
 /**
- * Hand a pasted bot token to the worker.
+ * Join the leaderboard.
  *
  * Two steps, in this order and in this place. The host permission is requested
  * here because `chrome.permissions.request` only works inside a user gesture,
- * and the Connect click is the only gesture Wick gets — a service worker has
- * none. The verification and chat lookup are the worker's job: it owns the
- * Telegram client and the settings write, and the token makes one trip across
- * this boundary and never comes back.
+ * and the Join click is the only gesture Wick gets — a service worker has none.
+ * The enrolment call is the worker's job: it owns the network and the settings
+ * write, and presentation never fetches.
  *
  * A declined grant is a decision, not a failure. Nothing is written and the
  * user can grant it on the next attempt.
  */
-export async function connectTelegram(botToken: string): Promise<ConnectOutcome> {
-  if (!(await grantTelegramOrigin())) return 'not-permitted';
+export async function joinBoard(): Promise<BoardOutcome> {
+  if (!(await grantBoardOrigin())) return 'not-permitted';
 
-  const reply = await sendToWorker({ type: 'wick:telegram-connect', botToken });
+  const reply = await sendToWorker({ type: 'wick:board-enroll' });
   if (reply === null || !reply.ok) return 'unavailable';
   return 'outcome' in reply ? reply.outcome : 'unavailable';
 }
 
 /**
- * Finish a connection whose token is already stored.
+ * Leave the leaderboard.
  *
- * Asks for the origin again for the same reason `connectTelegram` does — this
- * is a separate click and therefore a separate gesture, and `request` resolves
- * true without prompting for a grant the user has already given.
+ * No permission request: this is only offered once joined, which means the
+ * grant was given at enrolment. Asking again would prompt for something the
+ * user has already agreed to — and refusing to let someone leave because a
+ * prompt was dismissed would be the wrong way round.
  */
-export async function finishTelegram(): Promise<ConnectOutcome> {
-  if (!(await grantTelegramOrigin())) return 'not-permitted';
-
-  const reply = await sendToWorker({ type: 'wick:telegram-finish' });
+export async function leaveBoard(): Promise<BoardOutcome> {
+  const reply = await sendToWorker({ type: 'wick:board-leave' });
   if (reply === null || !reply.ok) return 'unavailable';
   return 'outcome' in reply ? reply.outcome : 'unavailable';
 }
 
 /**
- * Send a test message.
- *
- * No permission request: this is only offered once connected, which means the
- * grant was given during setup. Asking again would prompt for something the
- * user has already agreed to.
- */
-export async function testTelegram(): Promise<ConnectOutcome> {
-  const reply = await sendToWorker({ type: 'wick:telegram-test' });
-  if (reply === null || !reply.ok) return 'unavailable';
-  return 'outcome' in reply ? reply.outcome : 'unavailable';
-}
-
-/** Forget the token. Fire and forget; the settings write comes back through storage. */
-export function disconnectTelegram(): void {
-  void sendToWorker({ type: 'wick:telegram-disconnect' });
-}
-
-/**
- * Ask for the Telegram origin.
+ * Ask for the board origin.
  *
  * Called synchronously from the click, with no `await` in front of it — not
  * even a `permissions.contains` check first. Chrome requires
@@ -139,9 +119,9 @@ export function disconnectTelegram(): void {
  * been redundant anyway: `request` resolves `true` without prompting for a
  * permission the user has already granted.
  */
-async function grantTelegramOrigin(): Promise<boolean> {
+async function grantBoardOrigin(): Promise<boolean> {
   try {
-    return await chrome.permissions.request({ origins: [TELEGRAM_ORIGIN_PATTERN] });
+    return await chrome.permissions.request({ origins: [BOARD_ORIGIN_PATTERN] });
   } catch {
     // A browser without optional host permissions, or a call that has lost its
     // gesture. Either way Wick does not have the grant.

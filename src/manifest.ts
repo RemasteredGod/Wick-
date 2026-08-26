@@ -13,19 +13,20 @@ const TARGET: 'chrome' | 'firefox' = 'chrome';
 const CLAUDE_MATCH = 'https://claude.ai/*';
 
 /**
- * The Telegram Bot API origin, as a match pattern.
+ * The leaderboard origin, as a match pattern.
  *
- * Spelled out rather than imported from `src/background/telegram.ts`: this file
- * is evaluated by Vite's config loader, which does not resolve the `~` alias
- * that the background modules import through. It must stay identical to
- * `TELEGRAM_ORIGIN_PATTERN` there — a mismatch fails as an opaque network
- * error, not as a permission error.
+ * Spelled out rather than imported from `src/background/board.ts`: this file is
+ * evaluated by Vite's config loader, which does not resolve the `~` alias that
+ * the background modules import through. It must stay identical to
+ * `BOARD_ORIGIN_PATTERN` there — a mismatch fails as an opaque network error,
+ * not as a permission error.
  *
- * Broader than the relay origin it replaced: this lets Wick talk to any bot,
- * not one fixed host. That is inherent to per-user bot tokens (ADR 0009) and is
- * a Web Store review point worth expecting.
+ * One fixed host, unlike the `api.telegram.org` grant it replaces: the board is
+ * a single deployment Wick owns, so the pattern names it exactly. `www` rather
+ * than the apex, because the apex redirects and a cross-origin redirect drops
+ * the `Authorization` header — see the note in `board.ts`.
  */
-const TELEGRAM_MATCH = 'https://api.telegram.org/*';
+const BOARD_MATCH = 'https://www.usewick.lol/*';
 
 export default defineManifest({
   manifest_version: 3,
@@ -49,14 +50,15 @@ export default defineManifest({
   // Never <all_urls>.
   host_permissions: [CLAUDE_MATCH],
 
-  // Optional, and requested from the Connect button rather than at install.
+  // Optional, and requested from the Join button rather than at install.
   //
   // `optional_host_permissions` is a manifest key, not a permission string: it
-  // adds nothing to the install-time prompt, so a user who never sets up
-  // Telegram is never asked for it and can revoke it in Chrome's own UI if they
-  // do. Every relay call is blocked until it is granted, which is the intended
-  // default. See ADR 0003 (relay design).
-  optional_host_permissions: [TELEGRAM_MATCH],
+  // adds nothing to the install-time prompt, so a user who never joins the
+  // leaderboard is never asked for it and can revoke it in Chrome's own UI if
+  // they do. Every board call is blocked until it is granted, which is the
+  // intended default — the board is opt-in and the extension is complete
+  // without it.
+  optional_host_permissions: [BOARD_MATCH],
 
   action: {
     default_popup: 'src/popup/index.html',
