@@ -230,6 +230,22 @@ safely(waitForAnchor);
 function watchAccount(): void {
   let last: string | null = null;
 
+  // Answer the worker when it asks directly. Join is pressed in the popup, which
+  // cannot read this page — so without this the worker's only source is the poll
+  // below, and pressing Join in the first few seconds after an install reports
+  // the board as unreachable when nothing is wrong with it.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if ((message as { type?: unknown } | null)?.type !== 'wick:read-account') return false;
+
+    try {
+      sendResponse({ ok: true, email: findUserEmail() });
+    } catch {
+      sendResponse({ ok: true, email: null });
+    }
+    // Answered synchronously; nothing to hold the channel open for.
+    return false;
+  });
+
   const check = () => {
     try {
       const email = findUserEmail();

@@ -306,6 +306,10 @@ export function Settings({
  * answer is "did anything happen?".
  */
 const PROBLEM_COPY: Record<Exclude<BoardOutcome, 'ok'>, string> = {
+  // Not a failure, and worded as the step it is. The board keys a profile on
+  // the Claude account, and the account is only readable from a claude.ai page.
+  'no-account':
+    'Open claude.ai in a tab and sign in, then press Join. Wick reads which account you are on from the page.',
   unavailable: 'Could not reach the leaderboard. Nothing was changed.',
   'not-permitted': 'Wick needs permission to reach the leaderboard before it can join.',
 };

@@ -18,8 +18,10 @@ import {
   PROJECTS_REGION,
   PROJECTS_REGION_FALLBACK,
   SIDEBAR_ANCHORS,
+  USER_EMAIL,
   findAnchor,
   findDockTarget,
+  findUserEmail,
 } from '~/content/selectors';
 
 /**
@@ -105,5 +107,78 @@ describe('findDockTarget', () => {
     };
 
     expect(findDockTarget(asRoot(anchor as unknown as ReturnType<typeof stubRoot>))).toBeNull();
+  });
+});
+
+describe('findUserEmail', () => {
+  /**
+   * A page whose user-menu header holds `text`.
+   *
+   * `textContent` rather than `innerText`, matching what the real element
+   * exposes — the wrapper carries a `truncate` class, so `innerText` would hand
+   * back a visually clipped address on a narrow sidebar and the board would key
+   * a profile on half an address.
+   */
+  function pageShowing(text: unknown) {
+    const asked: string[] = [];
+    const root = {
+      asked,
+      querySelector(selector: string): unknown {
+        asked.push(selector);
+        return selector === USER_EMAIL ? { textContent: text } : null;
+      },
+    };
+    return root;
+  }
+
+  it('reads the address out of the markup claude.ai actually renders', () => {
+    // Observed 2026-08-27:
+    //   <div role="presentation" class="... truncate">
+    //     <span data-testid="user-menu-header">someone@example.com</span>
+    //   </div>
+    const root = pageShowing('someone@example.com');
+    expect(findUserEmail(asRoot(root))).toBe('someone@example.com');
+    expect(root.asked).toEqual([USER_EMAIL]);
+  });
+
+  it('normalises, so one account does not become two profiles', () => {
+    // The board keys on this. A differently-cased or padded render must not
+    // read as a different account.
+    expect(findUserEmail(asRoot(pageShowing('  Someone@Example.COM  ')))).toBe(
+      'someone@example.com',
+    );
+  });
+
+  it('reports nothing when the menu holds something that is not an address', () => {
+    // A display name, a signed-out placeholder, or a build that renders this
+    // element differently. Not knowing is a state the board handles; a wrong
+    // answer is one it cannot.
+    for (const value of ['', '   ', 'Ash Padhi', null, undefined, 42]) {
+      expect(findUserEmail(asRoot(pageShowing(value))), JSON.stringify(value)).toBeNull();
+    }
+  });
+
+  it('reports nothing when the element is absent', () => {
+    const root = {
+      asked: [] as string[],
+      querySelector(): unknown {
+        return null;
+      },
+    };
+    expect(findUserEmail(asRoot(root))).toBeNull();
+  });
+
+  it('does not throw when the page refuses the query', () => {
+    // Wick is a guest on someone else's page. A detached tree or a selector
+    // engine that objects must degrade to "unknown", never to an exception in
+    // the content script.
+    const root = {
+      asked: [] as string[],
+      querySelector(): unknown {
+        throw new Error('detached');
+      },
+    };
+    expect(() => findUserEmail(asRoot(root))).not.toThrow();
+    expect(findUserEmail(asRoot(root))).toBeNull();
   });
 });

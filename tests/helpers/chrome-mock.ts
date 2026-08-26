@@ -77,6 +77,16 @@ export interface FakeChrome {
    * agreed to anything. Add a pattern to grant it.
    */
   grantedOrigins: Set<string>;
+  /**
+   * What `chrome.tabs.sendMessage` answers, by message type.
+   *
+   * Empty by default, which models a tab whose content script has not loaded:
+   * chrome resolves `undefined` and the caller has to cope. Set an entry to let
+   * the worker get an answer back from a page.
+   */
+  tabReplies: Map<string, unknown>;
+  /** Every `chrome.tabs.sendMessage` call, in order. */
+  tabMessages: { tabId: number; message: unknown }[];
   /** Fire the alarm listener for `name`. */
   fireAlarm(name: string): void;
   /** Deliver a runtime message to registered listeners; resolves with the reply. */
@@ -100,6 +110,8 @@ export function installChromeMock(): FakeChrome {
   const notifications: unknown[] = [];
   const alarms = new Map<string, chrome.alarms.AlarmCreateInfo>();
   const grantedOrigins = new Set<string>();
+  const tabReplies = new Map<string, unknown>();
+  const tabMessages: { tabId: number; message: unknown }[] = [];
 
   const onChanged = listenerSet<[Record<string, StorageChange>, string]>();
   const onAlarm = listenerSet<[chrome.alarms.Alarm]>();
@@ -207,12 +219,22 @@ export function installChromeMock(): FakeChrome {
     tabs: {
       query: ({ url }: { url?: string | string[] } = {}) => {
         const patterns = url === undefined ? null : Array.isArray(url) ? url : [url];
-        if (patterns === null) return Promise.resolve([...tabs]);
+        const found = patterns === null
+          ? [...tabs]
+          : tabs.filter((tab) => patterns.some((one) => matchesPattern(one, tab.url)));
+        // Chrome gives every tab an id. The fake numbers them by position, so a
+        // test that pushes two tabs can tell which one was messaged.
+        return Promise.resolve(found.map((tab, index) => ({ ...tab, id: index + 1 })));
+      },
+      sendMessage: (tabId: number, message: unknown) => {
+        tabMessages.push({ tabId, message });
+        const type = (message as { type?: unknown } | null)?.type;
+        // Chrome resolves undefined when nothing is listening in the tab, which
+        // is what a page whose content script has not loaded looks like.
         return Promise.resolve(
-          tabs.filter((tab) => patterns.some((one) => matchesPattern(one, tab.url))),
+          typeof type === 'string' ? tabReplies.get(type) : undefined,
         );
       },
-      sendMessage: () => Promise.resolve(undefined),
     },
   };
 
@@ -228,6 +250,8 @@ export function installChromeMock(): FakeChrome {
     notifications,
     alarms,
     grantedOrigins,
+    tabReplies,
+    tabMessages,
     fireAlarm(name) {
       onAlarm.emit({ name, scheduledTime: Date.now() } as chrome.alarms.Alarm);
     },
@@ -265,6 +289,8 @@ export function installChromeMock(): FakeChrome {
       notifications.length = 0;
       alarms.clear();
       grantedOrigins.clear();
+      tabReplies.clear();
+      tabMessages.length = 0;
     },
   };
 }
