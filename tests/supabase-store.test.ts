@@ -125,6 +125,22 @@ describe('enrolling', () => {
     const store = createSupabaseStore(config, failing, () => TOKEN);
     expect(await store.enroll(() => 'taken')).toBeNull();
   });
+
+  it('raises anything that is not a name conflict on the first attempt', async () => {
+    // Retrying a permanent failure — a column that does not exist, a key that
+    // is not accepted — spends twenty sequential round trips and then the
+    // function's whole time budget, and reaches the user as "could not reach
+    // the leaderboard". It has to fail fast and say what happened.
+    let attempts = 0;
+    const failing = (async () => {
+      attempts += 1;
+      return new Response('column "token_hash" does not exist', { status: 400 });
+    }) as unknown as typeof fetch;
+
+    const store = createSupabaseStore(config, failing, () => TOKEN);
+    await expect(store.enroll(() => 'ash')).rejects.toThrow('supabase 400 on profiles');
+    expect(attempts).toBe(1);
+  });
 });
 
 describe('profiles', () => {

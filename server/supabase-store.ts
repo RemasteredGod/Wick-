@@ -76,7 +76,7 @@ export function createSupabaseStore(
   fetchImpl: typeof fetch = fetch,
   mintToken: () => string = () => randomBytes(TOKEN_BYTES).toString('base64url'),
 ): BoardStore {
-  /** One PostgREST request. Returns parsed rows, or throws with the status. */
+  /** One PostgREST request. Returns parsed rows, or throws a `RestError`. */
   async function rest<T>(
     path: string,
     init: RequestInit & { prefer?: string } = {},
@@ -93,7 +93,7 @@ export function createSupabaseStore(
     if (!response.ok) {
       // The body carries PostgREST's own message, which is the only useful part.
       // It is not logged — it can quote row values — but it is worth raising.
-      throw new Error(`supabase ${String(response.status)} on ${path.split('?')[0] ?? path}`);
+      throw new RestError(response.status, path.split('?')[0] ?? path);
     }
 
     // DELETE and PATCH without `return=representation` answer 204 with no body.
@@ -144,6 +144,13 @@ export function createSupabaseStore(
      * one gets a 409 and retries with a fresh proposal. Reading first and then
      * writing would let both through, which is exactly the race a random
      * assignment across a finite word list will eventually hit.
+     *
+     * **Only a 409 is retried.** Retrying every failure turns a permanent one
+     * — a column that does not exist, a key that is not accepted — into twenty
+     * sequential round trips and then a function timeout, which reaches the
+     * user as "could not reach the leaderboard" and tells whoever is debugging
+     * it nothing at all. Anything that is not a name conflict is raised on the
+     * first attempt, and the handler answers 503 in under a second.
      */
     async enroll(assign) {
       for (let attempt = 0; attempt < NAME_ATTEMPTS; attempt += 1) {
@@ -159,11 +166,9 @@ export function createSupabaseStore(
               name_folded: fold(name),
             }),
           });
-        } catch {
-          // A unique-violation on `name_folded`. Any other failure would fail
-          // again on the retry and fall out of the loop as `null`, which the
-          // handler reports as unavailable rather than as a full namespace.
-          continue;
+        } catch (error) {
+          if (error instanceof RestError && error.status === 409) continue;
+          throw error;
         }
 
         return { token, name };
@@ -211,6 +216,24 @@ export function createSupabaseStore(
       await rest(`profiles?token_hash=eq.${hash}`, { method: 'DELETE' });
     },
   };
+}
+
+/**
+ * A PostgREST response that was not ok.
+ *
+ * Carries the status because one caller has to tell a name conflict apart from
+ * everything else: `enroll` retries a 409 and must not retry anything else. The
+ * message names the status and the table and quotes no row data — PostgREST's
+ * own body can carry the values that caused the failure.
+ */
+export class RestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly table: string,
+  ) {
+    super(`supabase ${String(status)} on ${table}`);
+    this.name = 'RestError';
+  }
 }
 
 /** Profile type re-exported so callers need one import. */
