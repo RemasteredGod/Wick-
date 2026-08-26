@@ -1,0 +1,22 @@
+{
+  // The deploy's typecheck.
+  //
+  // The root config covers the Chrome extension too, which drags in `chrome`
+  // and `vite/client` types that a web deployment has no reason to install and
+  // no reason to check. Vercel builds `api/` and the two pure modules it
+  // imports; this checks exactly that and nothing else.
+  //
+  // Vercel compiles the functions themselves with esbuild, which does not
+  // typecheck. So this is the only thing standing between a type error and
+  // production.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // No `chrome`, no `vite/client`. `node` stays because the handlers read
+    // `process.env`.
+    "types": ["node"],
+    // The extension's surfaces are the only JSX in the project, and none of it
+    // is here.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["api", "relay", "leaderboard"]
+}
