@@ -41,6 +41,43 @@ export function sendHtml(
   res.end(html);
 }
 
+/**
+ * Send a JSON body and end the response.
+ *
+ * No security headers: those exist for the HTML pages, where a CSP is worth
+ * stating, and a JSON body rendered by a browser is not a document. `no-store`
+ * is the default because every JSON route here is either authenticated or mints
+ * a credential, and a cached copy of either is a copy handed to the next caller.
+ */
+export function sendJson(
+  res: Res,
+  status: number,
+  body: unknown,
+  cacheControl = 'no-store',
+): void {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', cacheControl);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * The bearer token on a request, or `null`.
+ *
+ * Strict about the scheme and about the shape: anything that is not exactly
+ * `Bearer <token>` with a non-empty token is absent rather than salvaged. A
+ * lenient parse here would mean the difference between "no credential" and "a
+ * malformed one" is decided by a regex, and both must be refused identically.
+ */
+export function bearerToken(req: Req): string | null {
+  const value = header(req, 'authorization');
+  if (value === null) return null;
+
+  const match = /^Bearer ([!-~]+)$/.exec(value.trim());
+  return match?.[1] ?? null;
+}
+
 /** Send a short plain-text body and end the response. */
 export function sendText(res: Res, status: number, body: string): void {
   res.statusCode = status;

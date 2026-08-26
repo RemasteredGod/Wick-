@@ -6,15 +6,14 @@
  * string, breaks naive link detection in the chat clients this is meant to be
  * pasted into, and leaves nowhere to hang a sub-resource like the share image.
  *
- * The card carries the ADR 0006 metrics and nothing else. No plan tier, no
- * message count, no social graph — each of those was drawn in a design
- * revision and each is a new personal field with no route into the schema.
- * Adding one is an ADR, not a property on this interface.
+ * The card carries the ranked figure, the days behind it, and the streak. No
+ * plan tier, no social graph, no times of day — each of those was drawn in a
+ * design revision and each is a new personal field with no route into the
+ * schema. Adding one is an ADR, not a property on this interface.
  *
  * Pure. Renders data structures, not markup.
  */
 
-import type { Counters } from './submission.js';
 import type { Period } from './periods.js';
 import type { Standing } from './ranking.js';
 
@@ -70,18 +69,14 @@ export interface CardStanding {
   ranked: number;
 }
 
-/**
- * Everything a profile page and its share image may show.
- *
- * `cacheRead` sits inside `counters` and is never folded into `ranked` — see
- * ranking.ts. It is on the card so the figure is legible, not so it can be
- * added up by whoever reads it.
- */
+/** Everything a profile page and its share image may show. */
 export interface ProfileCard {
   name: string;
   standings: CardStanding[];
-  counters: Counters;
-  sessions: number;
+  /** Messages all time. The same figure `ranked` carries for the `all` period. */
+  messages: number;
+  /** Distinct days submitted, all time. */
+  days: number;
   streak: number;
   lastDay: string | null;
   /** Always present, always rendered. Not a caller's choice. */
@@ -101,8 +96,8 @@ export function buildCard(
   streak: number,
 ): ProfileCard {
   const lines: CardStanding[] = [];
-  let counters: Counters = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
-  let sessions = 0;
+  let messages = 0;
+  let days = 0;
   let lastDay: string | null = null;
 
   for (const period of ['week', 'month', 'all'] as const) {
@@ -113,11 +108,11 @@ export function buildCard(
 
     // The all-time standing is the whole record, so its totals are the card's.
     if (period === 'all') {
-      counters = standing.counters;
-      sessions = standing.sessions;
+      messages = standing.ranked;
+      days = standing.days;
       lastDay = standing.lastDay;
     }
   }
 
-  return { name, standings: lines, counters, sessions, streak, lastDay, label: SELF_REPORTED_LABEL };
+  return { name, standings: lines, messages, days, streak, lastDay, label: SELF_REPORTED_LABEL };
 }

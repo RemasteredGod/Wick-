@@ -199,14 +199,7 @@ describe('profile addresses', () => {
 
 describe('profile card', () => {
   function standing(rank: number, ranked: number): Standing {
-    return {
-      rank,
-      name: 'ash',
-      ranked,
-      counters: { input: 10, output: 20, cacheCreation: 5, cacheRead: 9_000 },
-      sessions: 7,
-      lastDay: '2026-08-25',
-    };
+    return { rank, name: 'ash', ranked, days: 7, lastDay: '2026-08-25' };
   }
 
   it('always carries the self-reported label', () => {
@@ -228,16 +221,26 @@ describe('profile card', () => {
     expect(card.standings.map((line) => line.period)).toEqual(['month', 'all']);
   });
 
-  it('carries cache reads without folding them into the ranked figure', () => {
-    const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(3, 30)]]), 4);
-    expect(card.counters.cacheRead).toBe(9_000);
-    expect(card.standings[0]?.ranked).toBe(30);
+  it('takes its totals from the all-time standing, not from a period', () => {
+    const card = buildCard(
+      'ash',
+      new Map<Period, Standing | null>([
+        ['week', standing(1, 5)],
+        ['all', standing(3, 30)],
+      ]),
+      4,
+    );
+    // The card's headline figures describe the whole record; the per-period
+    // ranks are the table beneath it.
+    expect(card.messages).toBe(30);
+    expect(card.days).toBe(7);
+    expect(card.standings.map((line) => line.ranked)).toEqual([5, 30]);
   });
 
-  it('shows no plan tier, message count, or social graph', () => {
+  it('shows no plan tier, no social graph, and no times of day', () => {
     const card = buildCard('ash', new Map<Period, Standing | null>([['all', standing(1, 30)]]), 4);
     const keys = Object.keys(card);
-    for (const forbidden of ['plan', 'tier', 'messages', 'friends', 'followers']) {
+    for (const forbidden of ['plan', 'tier', 'friends', 'followers', 'hourly', 'utilization']) {
       expect(keys, forbidden).not.toContain(forbidden);
     }
   });

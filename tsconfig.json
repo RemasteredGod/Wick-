@@ -28,5 +28,5 @@
       "~/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests", "leaderboard", "relay", "api", "vite.config.ts"]
+  "include": ["src", "tests", "leaderboard", "server", "api", "vite.config.ts"]
 }

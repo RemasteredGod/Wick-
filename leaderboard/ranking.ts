@@ -1,25 +1,25 @@
 /**
  * The metric, and the order.
  *
- * "Total tokens" is the obvious ranking and the wrong one. Cache tokens are far
- * cheaper than input tokens, so a raw sum ranks whoever has the most
- * cache-heavy workflow above whoever did the most work. ADR 0006 settles it:
+ *     ranked = messages sent
  *
- *     ranked = input + output
+ * One number, summed over the period. ADR 0006 ranked `input + output` tokens
+ * and carried two cache figures alongside without adding them in; that whole
+ * apparatus existed because token counts arrive in four kinds of wildly
+ * differing cost. A message count has no such structure — there is nothing to
+ * weight, nothing to exclude, and nothing about the ranking that needs
+ * explaining beside the figure. See `submission.ts` for why the metric moved.
  *
- * with **both** cache figures carried through every calculation and added to
- * none of them. They are displayed beside the figure so the ranking is legible
- * rather than a mystery number, and that is the only thing they are for. There
- * is deliberately no option, flag or parameter in this file that folds them in.
- *
- * `plan.md` §4 recommends counting `cache_creation` into the score. ADR 0006 is
- * the accepted decision and excludes it. Where the two disagree, the ADR wins.
+ * `days` rides along as the secondary column: how many distinct days the
+ * participant submitted within the period. It is not part of the order. It is
+ * there because "1,200 messages" reads differently over two days than over
+ * seven, and the board should not make the reader guess which.
  *
  * Pure. `today` is passed in; nothing here reads a clock.
  */
 
 import { inPeriod, type Day, type Period } from './periods.js';
-import { addCounters, emptyCounters, type Counters, type DailyRow } from './submission.js';
+import type { DailyRow } from './submission.js';
 
 /** Everything one participant has submitted. Rows are unique by day. */
 export interface Participant {
@@ -32,10 +32,10 @@ export interface Participant {
 export interface Standing {
   rank: number;
   name: string;
-  /** `input + output`. What the row is ordered by; no cache figure is in it. */
+  /** Messages over the period. What the row is ordered by. */
   ranked: number;
-  counters: Counters;
-  sessions: number;
+  /** Distinct days submitted within the period. Displayed, never ordered by. */
+  days: number;
   /** The most recent day this participant submitted within the period. */
   lastDay: Day | null;
 }
@@ -44,14 +44,14 @@ export interface Standing {
 export const BOARD_SIZE = 100;
 
 /**
- * The ranked figure for a counter set.
+ * The ranked figure for a row set.
  *
  * The single place the metric is defined. Nothing else in the codebase should
  * add these numbers together — if the definition ever changes it changes here,
- * and every board, profile and share image moves with it.
+ * and every board and profile moves with it.
  */
-export function rankedTotal(counters: Counters): number {
-  return counters.input + counters.output;
+export function rankedTotal(rows: readonly DailyRow[]): number {
+  return rows.reduce((sum, row) => sum + row.messages, 0);
 }
 
 /**
@@ -62,19 +62,20 @@ export function rankedTotal(counters: Counters): number {
  * cannot know it would be a confident wrong number.
  */
 export function summarise(participant: Participant, period: Period, today: Day): Standing {
-  let counters = emptyCounters();
-  let sessions = 0;
+  const within = participant.rows.filter((row) => inPeriod(row.day, period, today));
+
   let lastDay: Day | null = null;
-
-  for (const row of participant.rows) {
-    if (!inPeriod(row.day, period, today)) continue;
-
-    counters = addCounters(counters, row.counters);
-    sessions += row.sessions;
+  for (const row of within) {
     if (lastDay === null || row.day > lastDay) lastDay = row.day;
   }
 
-  return { rank: 0, name: participant.name, ranked: rankedTotal(counters), counters, sessions, lastDay };
+  return {
+    rank: 0,
+    name: participant.name,
+    ranked: rankedTotal(within),
+    days: new Set(within.map((row) => row.day)).size,
+    lastDay,
+  };
 }
 
 /**
@@ -156,8 +157,8 @@ export function standingFor(
  *
  * Computed from days already submitted, so it says nothing the board does not
  * already publish. Note what it is *not*: it is not "days without hitting a
- * limit", which would require the relay to retain the usage history ADR 0003
- * promises it does not keep.
+ * limit", which would require the server to retain a usage history it never
+ * receives.
  */
 export function streak(participant: Participant): number {
   const days = [...new Set(participant.rows.map((row) => row.day))].sort();

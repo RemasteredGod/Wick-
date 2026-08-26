@@ -15,8 +15,8 @@
 
 import { renderBoard } from '../leaderboard/render.js';
 import { BOARD_SIZE } from '../leaderboard/ranking.js';
-import { configFromEnv, createSupabaseStore } from '../relay/supabase-store.js';
-import { queryParam, sendHtml, type Req, type Res } from '../relay/http.js';
+import { configFromEnv, createSupabaseStore } from '../server/supabase-store.js';
+import { queryParam, sendHtml, type Req, type Res } from '../server/http.js';
 import type { Period } from '../leaderboard/periods.js';
 import type { Standing } from '../leaderboard/ranking.js';
 

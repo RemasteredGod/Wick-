@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { configFromEnv, createSupabaseStore } from '../relay/supabase-store';
+import { configFromEnv, createSupabaseStore, hashToken } from '../server/supabase-store';
 import { fold } from '../leaderboard/names';
 
 const config = { url: 'https://project.supabase.co', serviceKey: 'service-role-key' };
+
+const TOKEN = 'participant-token';
+const HASH = hashToken(TOKEN);
 
 interface Call {
   url: string;
@@ -12,7 +15,7 @@ interface Call {
 }
 
 /** A fake PostgREST. `routes` maps a path fragment to the rows it answers. */
-function rest(routes: Record<string, unknown[]> = {}) {
+function rest(routes: Record<string, unknown[]> = {}, mint = () => TOKEN) {
   const calls: Call[] = [];
 
   const fetchImpl = (async (url: string, init: RequestInit = {}) => {
@@ -28,7 +31,7 @@ function rest(routes: Record<string, unknown[]> = {}) {
     return new Response(JSON.stringify(rows ?? []), { status: 200 });
   }) as unknown as typeof fetch;
 
-  return { calls, store: createSupabaseStore(config, fetchImpl) };
+  return { calls, store: createSupabaseStore(config, fetchImpl, mint) };
 }
 
 describe('configFromEnv', () => {
@@ -51,111 +54,131 @@ describe('configFromEnv', () => {
 describe('authentication', () => {
   it('sends the service key as both apikey and bearer', async () => {
     const { calls, store } = rest();
-    await store.profile(42);
+    await store.profile(TOKEN);
 
     expect(calls[0]?.headers['apikey']).toBe('service-role-key');
     expect(calls[0]?.headers['Authorization']).toBe('Bearer service-role-key');
   });
 });
 
-describe('profiles', () => {
-  it('reads a profile by chat', async () => {
-    const { store } = rest({ 'profiles?chat_id=eq.42': [{ name: 'ash', digest: true }] });
-    expect(await store.profile(42)).toEqual({ name: 'ash', digest: true });
+describe('tokens', () => {
+  it('never sends a plaintext token to the database', async () => {
+    // A stolen database must not yield working credentials. Every path that
+    // takes a token has to hash it on the way in.
+    const { calls, store } = rest();
+    await store.profile(TOKEN);
+    await store.saveDaily(TOKEN, { day: '2026-08-25', messages: 5 });
+    await store.forget(TOKEN);
+
+    for (const call of calls) {
+      expect(call.url, call.url).not.toContain(TOKEN);
+      expect(JSON.stringify(call.body ?? {}), call.url).not.toContain(TOKEN);
+    }
+    expect(calls.some((call) => call.url.includes(HASH))).toBe(true);
   });
 
-  it('returns null for a chat with no profile', async () => {
-    const { store } = rest();
-    expect(await store.profile(42)).toBeNull();
+  it('hashes deterministically, or a returning participant is a stranger', () => {
+    expect(hashToken(TOKEN)).toBe(hashToken(TOKEN));
+    expect(hashToken(TOKEN)).not.toBe(hashToken(`${TOKEN}x`));
+    expect(hashToken(TOKEN)).toMatch(/^[0-9a-f]{64}$/);
   });
+});
 
+describe('enrolling', () => {
   it('writes the folded name alongside the display name', async () => {
     // Uniqueness is decided on the folded column. Writing only `name` would
     // make the whole confusable defence decorative.
     const { calls, store } = rest();
-    await store.createProfile(42, 'Ash_Padhi');
+    const enrolment = await store.enroll(() => 'Ash_Padhi');
 
+    expect(enrolment).toEqual({ token: TOKEN, name: 'Ash_Padhi' });
     const body = calls[0]?.body as Record<string, unknown>;
     expect(body['name']).toBe('Ash_Padhi');
     expect(body['name_folded']).toBe(fold('Ash_Padhi'));
+    expect(body['token_hash']).toBe(HASH);
   });
 
-  it('keeps the folded name in step on a rename', async () => {
-    const { calls, store } = rest();
-    await store.setName(42, 'newname');
+  it('retries with a fresh proposal when the unique index refuses one', async () => {
+    // The insert is the uniqueness check: reading first and then writing would
+    // let two concurrent enrolments take the same name.
+    let attempt = 0;
+    const fetchImpl = (async () => {
+      attempt += 1;
+      return attempt === 1
+        ? new Response('duplicate key value', { status: 409 })
+        : new Response('[]', { status: 200 });
+    }) as unknown as typeof fetch;
 
-    expect(calls[0]?.method).toBe('PATCH');
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body['name_folded']).toBe(fold('newname'));
+    const store = createSupabaseStore(config, fetchImpl, () => TOKEN);
+    const names = ['taken', 'free'];
+    let index = 0;
+
+    const enrolment = await store.enroll(() => names[index++] ?? 'fallback');
+    expect(enrolment?.name).toBe('free');
+    expect(attempt).toBe(2);
   });
 
-  it('asks the folded column when checking whether a name is taken', async () => {
-    const { calls, store } = rest();
-    await store.isNameTaken('ash');
+  it('gives up rather than looping forever on a full namespace', async () => {
+    const failing = (async () =>
+      new Response('duplicate key value', { status: 409 })) as unknown as typeof fetch;
 
-    expect(calls[0]?.url).toContain('name_folded=eq.ash');
+    const store = createSupabaseStore(config, failing, () => TOKEN);
+    expect(await store.enroll(() => 'taken')).toBeNull();
   });
 });
 
-describe('rename codes', () => {
-  it('redeems conditionally, so two attempts cannot both win', async () => {
-    // A read-then-write would let concurrent redemptions both succeed. The
-    // filter carries the condition instead.
-    const { calls, store } = rest({ rename_codes: [{ code: 'K7QM2XPD' }] });
-    expect(await store.redeemRenameCode('K7QM2XPD')).toBe(true);
-
-    expect(calls[0]?.method).toBe('PATCH');
-    expect(calls[0]?.url).toContain('redeemed=is.false');
-    expect(calls[0]?.headers['Prefer']).toBe('return=representation');
+describe('profiles', () => {
+  it('reads a profile by token', async () => {
+    const { store } = rest({ [`profiles?token_hash=eq.${HASH}`]: [{ name: 'ash' }] });
+    expect(await store.profile(TOKEN)).toEqual({ name: 'ash' });
   });
 
-  it('reports a code that updated nothing as unusable', async () => {
+  it('returns null for a token with no profile', async () => {
     const { store } = rest();
-    expect(await store.redeemRenameCode('SPENT')).toBe(false);
+    expect(await store.profile(TOKEN)).toBeNull();
+  });
+});
+
+describe('submitting', () => {
+  it('upserts, so a resubmission corrects a day instead of doubling it', async () => {
+    const { calls, store } = rest();
+    await store.saveDaily(TOKEN, { day: '2026-08-25', messages: 42 });
+
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.headers['Prefer']).toBe('resolution=merge-duplicates');
+    expect(calls[0]?.body).toEqual({ token_hash: HASH, day: '2026-08-25', messages: 42 });
   });
 });
 
 describe('boards', () => {
   const profiles = [
-    { chat_id: 1, name: 'worker' },
-    { chat_id: 2, name: 'idler' },
+    { token_hash: 'a', name: 'worker' },
+    { token_hash: 'b', name: 'idler' },
   ];
-  const connections = [
-    { token_hash: 'a', chat_id: 1 },
-    { token_hash: 'b', chat_id: 1 },
-    { token_hash: 'c', chat_id: 2 },
-  ];
-  const row = (token: string, day: string, input: number, output: number) => ({
+  const row = (token: string, day: string, messages: number) => ({
     token_hash: token,
     day,
-    input,
-    output,
-    cache_creation: 0,
-    cache_read: 0,
-    sessions: 1,
+    messages,
   });
 
-  it('aggregates two installations of one chat into one row', async () => {
-    // ADR 0006: multiple tokens for one chat are one profile. Listing them
-    // separately would show somebody twice, each at half strength.
+  it('joins rows to profiles on the token hash', async () => {
     const { store } = rest({
-      profiles: profiles,
-      connections,
-      daily_rows: [row('a', '2026-08-25', 300, 300), row('b', '2026-08-25', 200, 200)],
+      profiles,
+      daily_rows: [row('a', '2026-08-25', 300), row('a', '2026-08-24', 200)],
     });
 
     const board = await store.board('all', '2026-08-25', 10);
     expect(board).toHaveLength(1);
     expect(board[0]?.name).toBe('worker');
-    expect(board[0]?.ranked).toBe(1_000);
+    expect(board[0]?.ranked).toBe(500);
+    expect(board[0]?.days).toBe(2);
   });
 
-  it('ignores rows whose token has no connection', async () => {
+  it('ignores rows whose token has no profile', async () => {
     // An orphan row belongs to nobody and must not be attributed to anybody.
     const { store } = rest({
-      profiles: profiles,
-      connections: [{ token_hash: 'a', chat_id: 1 }],
-      daily_rows: [row('a', '2026-08-25', 10, 10), row('ghost', '2026-08-25', 9_999, 9_999)],
+      profiles: [{ token_hash: 'a', name: 'worker' }],
+      daily_rows: [row('a', '2026-08-25', 20), row('ghost', '2026-08-25', 9_999)],
     });
 
     const board = await store.board('all', '2026-08-25', 10);
@@ -165,9 +188,8 @@ describe('boards', () => {
 
   it('finds a standing by name', async () => {
     const { store } = rest({
-      profiles: profiles,
-      connections,
-      daily_rows: [row('a', '2026-08-25', 500, 500), row('c', '2026-08-25', 10, 10)],
+      profiles,
+      daily_rows: [row('a', '2026-08-25', 500), row('b', '2026-08-25', 10)],
     });
 
     expect((await store.standing('idler', 'all', '2026-08-25'))?.rank).toBe(2);
@@ -175,30 +197,26 @@ describe('boards', () => {
 });
 
 describe('leaving', () => {
-  it('optout deletes rows and the profile but never the connections', async () => {
-    // Opting out of the board is not disconnecting alerts. Conflating them
-    // would silently switch off something the user still wants.
-    const { calls, store } = rest({ connections: [{ token_hash: 'a' }] });
-    await store.deleteProfile(42);
-
-    const deletes = calls.filter((call) => call.method === 'DELETE').map((call) => call.url);
-    expect(deletes.some((url) => url.includes('daily_rows'))).toBe(true);
-    expect(deletes.some((url) => url.includes('profiles'))).toBe(true);
-    expect(deletes.some((url) => url.includes('connections'))).toBe(false);
-  });
-
-  it('forget deletes rows before the connections they are keyed by', async () => {
-    // The other order loses the token hashes and orphans the rows for good.
-    const { calls, store } = rest({ connections: [{ token_hash: 'a' }] });
-    await store.forget(42);
+  it('deletes rows before the profile they hang off', async () => {
+    // The other order leaves rows keyed by a hash nothing points at any more:
+    // invisible to the board, which reads through profiles, and undeletable.
+    const { calls, store } = rest();
+    await store.forget(TOKEN);
 
     const deletes = calls.filter((call) => call.method === 'DELETE').map((call) => call.url);
     const rows = deletes.findIndex((url) => url.includes('daily_rows'));
-    const conns = deletes.findIndex((url) => url.includes('connections'));
+    const profile = deletes.findIndex((url) => url.includes('profiles'));
 
     expect(rows).toBeGreaterThanOrEqual(0);
-    expect(conns).toBeGreaterThan(rows);
-    expect(deletes.some((url) => url.includes('codes'))).toBe(true);
+    expect(profile).toBeGreaterThan(rows);
+  });
+
+  it('leaves nothing behind to prove somebody was there', async () => {
+    const { calls, store } = rest();
+    await store.forget(TOKEN);
+
+    // No tombstone, no soft-delete flag. Only deletes.
+    expect(calls.every((call) => call.method === 'DELETE')).toBe(true);
   });
 });
 
@@ -209,13 +227,15 @@ describe('failures', () => {
         status: 409,
       })) as unknown as typeof fetch;
 
-    const store = createSupabaseStore(config, failing);
-    await expect(store.createProfile(1, 'ash')).rejects.toThrow('supabase 409 on profiles');
+    const store = createSupabaseStore(config, failing, () => TOKEN);
+    await expect(store.saveDaily(TOKEN, { day: '2026-08-25', messages: 1 })).rejects.toThrow(
+      'supabase 409 on daily_rows',
+    );
   });
 
   it('treats a 204 with no body as an empty result', async () => {
     const empty = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
-    const store = createSupabaseStore(config, empty);
-    await expect(store.setDigest(1, true)).resolves.toBeUndefined();
+    const store = createSupabaseStore(config, empty, () => TOKEN);
+    await expect(store.forget(TOKEN)).resolves.toBeUndefined();
   });
 });
