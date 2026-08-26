@@ -13,12 +13,12 @@
 
 import { handleUpdate } from '../relay/webhook';
 import { configFromEnv, createSupabaseStore } from '../relay/supabase-store';
+import { header, readJson, sendText, type Req, type Res } from '../relay/http';
 
-export const config = { runtime: 'nodejs' };
-
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method !== 'POST') {
-    return new Response('method not allowed', { status: 405 });
+export default async function handler(req: Req, res: Res): Promise<void> {
+  if (req.method !== 'POST') {
+    sendText(res, 405, 'method not allowed');
+    return;
   }
 
   const botToken = process.env['TELEGRAM_BOT_TOKEN'];
@@ -27,27 +27,35 @@ export default async function handler(request: Request): Promise<Response> {
   if (botToken === undefined || webhookSecret === undefined) {
     // 500 rather than 200: this is a deployment that cannot work, and Telegram
     // retrying is the correct behaviour once the variables are set.
-    return new Response('not configured', { status: 500 });
+    sendText(res, 500, 'not configured');
+    return;
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await readJson(req);
+  if (body === null) {
     // Unparseable bodies are acknowledged, not retried. Whatever sent it, a
     // redelivery will not be more parseable than the first attempt.
-    return new Response('ok', { status: 200 });
+    sendText(res, 200, 'ok');
+    return;
   }
 
-  const result = await handleUpdate(body, request.headers.get('x-telegram-bot-api-secret-token'), {
+  let store;
+  try {
+    store = createSupabaseStore(configFromEnv(process.env));
+  } catch {
+    sendText(res, 500, 'not configured');
+    return;
+  }
+
+  const result = await handleUpdate(body, header(req, 'x-telegram-bot-api-secret-token'), {
     config: { botToken, webhookSecret },
-    store: createSupabaseStore(configFromEnv(process.env)),
+    store,
     now: Date.now(),
     today: new Date().toISOString().slice(0, 10),
     random: cryptoRandom,
   });
 
-  return new Response(result.status === 403 ? 'forbidden' : 'ok', { status: result.status });
+  sendText(res, result.status, result.status === 403 ? 'forbidden' : 'ok');
 }
 
 /**

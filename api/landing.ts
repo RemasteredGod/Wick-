@@ -8,21 +8,10 @@
  */
 
 import { renderLanding } from '../leaderboard/render';
+import { sendHtml, type Req, type Res } from '../relay/http';
 
-export const config = { runtime: 'nodejs' };
-
-export default function handler(): Response {
-  return new Response(renderLanding(), {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      // Nothing on this page changes between deployments, so it is cached hard.
-      // A deploy invalidates the edge cache, which is the only time it should.
-      'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800',
-      'Content-Security-Policy':
-        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'",
-      'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+export default function handler(_req: Req, res: Res): void {
+  // Nothing on this page changes between deployments, so it is cached hard.
+  // A deploy invalidates the edge cache, which is the only time it should.
+  sendHtml(res, 200, renderLanding(), 'public, s-maxage=86400, stale-while-revalidate=604800');
 }
