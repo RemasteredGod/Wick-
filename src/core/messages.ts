@@ -95,7 +95,16 @@ export type RuntimeMessage =
    * asks the board to delete the rows.
    */
   | { type: 'wick:board-enroll' }
-  | { type: 'wick:board-leave' };
+  | { type: 'wick:board-leave' }
+  /**
+   * The signed-in Claude account, as read from claude.ai's sidebar.
+   *
+   * Sent by the content script whenever it sees one, and whenever it changes.
+   * The board keys profiles on this, so it is what makes one account one public
+   * profile across every browser — and what tells the worker that the user has
+   * switched accounts and is now publishing as somebody else.
+   */
+  | { type: 'wick:account-email'; email: string };
 
 /**
  * How a leaderboard action ended.
@@ -129,6 +138,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     type === 'wick:tab-open' ||
     type === 'wick:get-state' ||
     type === 'wick:board-enroll' ||
-    type === 'wick:board-leave'
+    type === 'wick:board-leave' ||
+    type === 'wick:account-email'
   );
 }

@@ -243,6 +243,15 @@ export interface Settings {
   boardToken: string | null;
   /** The assigned name this installation submits under. Display only. */
   boardName: string | null;
+  /**
+   * The Claude account `boardToken` belongs to.
+   *
+   * Held so the worker can notice that the signed-in account has *changed*. The
+   * board keys a profile on the account, so publishing one account's days under
+   * another's token would attribute somebody's work to somebody else — the same
+   * mistake the snapshot merge refuses to make with `accountId`.
+   */
+  boardEmail: string | null;
   /** The last day already submitted, `YYYY-MM-DD`. Nothing before it is resent. */
   boardSubmittedThrough: string | null;
 }
@@ -253,6 +262,7 @@ export const DEFAULT_SETTINGS: Settings = {
   display: { session: true, weekly: true, forecast: true, sparkline: true },
   boardToken: null,
   boardName: null,
+  boardEmail: null,
   boardSubmittedThrough: null,
 };
 

@@ -76,6 +76,62 @@ export const PROJECTS_REGION_FALLBACK = '[data-kind="home-projects"]';
  */
 export const PROJECTS_HEADING_TEXT = 'Projects';
 
+/**
+ * The signed-in account's email, in the sidebar's user menu header.
+ *
+ * Another test id set by claude.ai's own tests, chosen for the same reason as
+ * the ones above: it survives restyles and class renames, which the wrapper's
+ * utility classes emphatically do not.
+ *
+ * Observed 2026-08-27:
+ *
+ *     <div role="presentation" class="... truncate">
+ *       <span data-testid="user-menu-header">someone@example.com</span>
+ *     </div>
+ *
+ * **The board keys profiles on this**, so a wrong read is worse here than
+ * anywhere else in this file: a stale or truncated address would create a
+ * second profile for one account rather than degrade a display. `findUserEmail`
+ * therefore reports nothing when it is not sure.
+ */
+export const USER_EMAIL = '[data-testid="user-menu-header"]';
+
+/**
+ * The signed-in account's email, or `null`.
+ *
+ * `textContent` rather than `innerText`, deliberately: the element carries a
+ * `truncate` class, and `innerText` reflects what is *rendered*, so a narrow
+ * sidebar would hand back a visually clipped address. `textContent` is the
+ * markup's own string and is unaffected by CSS.
+ *
+ * **Barely validated, on purpose.** `leaderboard/account.ts` is the authority on
+ * what a usable address is, and it revalidates every enrolment body — the board
+ * cannot trust this extension any more than it trusts anyone else, so a second
+ * full copy of that grammar here would be duplication that buys nothing. What
+ * this does do is normalise, because the worker compares the result against the
+ * account it is already enrolled as, and two spellings of one address must not
+ * read as a switch.
+ *
+ * `src/` shares no code with `leaderboard/`; that boundary is why the check is
+ * a shape test rather than an import.
+ */
+export function findUserEmail(root: ParentNode = document): string | null {
+  try {
+    const text = root.querySelector(USER_EMAIL)?.textContent;
+    if (typeof text !== 'string') return null;
+
+    const email = text.trim().toLowerCase();
+    // Enough to reject the empty string and a menu that renders a display name
+    // instead. Everything finer is the server's job.
+    if (email.length === 0 || !email.includes('@')) return null;
+    return email;
+  } catch {
+    // A selector engine that refuses, or a detached tree. Not knowing the
+    // account is a state the board already handles; throwing here is not.
+    return null;
+  }
+}
+
 /** Id of the host element Wick inserts. Also how it detects it is already mounted. */
 export const HOST_ID = 'wick-sidebar-host';
 

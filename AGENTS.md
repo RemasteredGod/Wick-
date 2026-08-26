@@ -68,13 +68,25 @@ Everything in the protocol notes are undocumented and will break.
 
 - History is append-only and cannot be backfilled. Never ship a change that
   stops writing daily rollups.
-- Nothing leaves the user's machine except a leaderboard submission the user
-  opted into. No analytics, no telemetry, no crash reporting.
+- Nothing leaves the user's machine except a leaderboard enrolment and its
+  submissions, both of which the user opted into. No analytics, no telemetry, no
+  crash reporting.
 - **A submission is a date and a message count. Nothing else may be added to
   it.** Not percentages, not window keys, not the hourly breakdown, not the
   organisation id — the rollup it is built from holds all four, and every one of
   them is a fact about the user that the board has no reason to hold. Widening
   the body is an ADR, not a field.
+- **The account email travels once, at enrolment, and never on a submission.**
+  The board keys a profile on the Claude account so that one account is one
+  public profile across every browser; a daily request carries a bearer token
+  instead, so the address does not accumulate in the host's request logs. Moving
+  it onto the submission path would be a privacy regression, not a
+  simplification.
+- **The email is an identifier, never a credential.** Nothing verifies it —
+  the extension reads it off claude.ai's sidebar and cannot prove the account is
+  the caller's. Do not write code, or documentation, that treats possession of a
+  profile as evidence of anything. `PRIVACY.md` says this to the user in as many
+  words; keep it saying so.
 - **Alerts never touch the network.** They are `chrome.notifications`. A channel
   that needs a credential, a host permission and a setup flow is a channel most
   users never finish configuring; the previous Telegram path is removed and is

@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  adopt,
   BOARD_ORIGIN,
   BOARD_ORIGIN_PATTERN,
   drain,
@@ -23,6 +24,8 @@ import { installChromeMock, uninstallChromeMock, type FakeChrome } from './helpe
 
 const NOW = new Date(2026, 7, 25, 14, 0).getTime();
 const DAY = 86_400_000;
+const ASH = 'ash@example.com';
+const OTHER = 'someone-else@example.com';
 
 let fake: FakeChrome;
 
@@ -41,10 +44,17 @@ function settings(over: Partial<Settings> = {}): void {
   fake.store.set(KEYS.settings, { ...DEFAULT_SETTINGS, ...over });
 }
 
+/** Which Claude account the content script last reported. */
+function signedInAs(email: string | null): void {
+  if (email === null) fake.store.delete(KEYS.accountEmail);
+  else fake.store.set(KEYS.accountEmail, email);
+}
+
 /** Enrolled, granted, and with the board reachable. The normal case. */
 function joined(over: Partial<Settings> = {}): void {
-  settings({ boardToken: 'tok', boardName: 'amber-ledger-0042', ...over });
+  settings({ boardToken: 'tok', boardName: 'amber-ledger-0042', boardEmail: ASH, ...over });
   fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+  signedInAs(ASH);
 }
 
 function rollup(date: string, messages: number, over: Partial<DailyRollup> = {}): DailyRollup {
@@ -277,27 +287,48 @@ describe('joining', () => {
     chrome.runtime.onMessage.addListener(handleBoardMessage);
   });
 
-  it('stores the token and name the board hands back', async () => {
+  it('stores the token, name and account the board bound them to', async () => {
     vi.stubGlobal('fetch', ok({ token: 'minted', name: 'amber-ledger-0042' }));
     settings();
     fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(ASH);
 
     expect(await ask({ type: 'wick:board-enroll' })).toEqual({ ok: true, outcome: 'ok' });
 
     const stored = fake.store.get(KEYS.settings) as Settings;
     expect(stored.boardToken).toBe('minted');
     expect(stored.boardName).toBe('amber-ledger-0042');
+    expect(stored.boardEmail).toBe(ASH);
   });
 
-  it('sends an empty body, because there is nothing to identify the user with', async () => {
+  it('sends the account and nothing else', async () => {
+    // The email is the profile's primary key, so it has to travel — but only
+    // this once, and with nothing else alongside it.
     const fetchMock = ok({ token: 'minted', name: 'n' });
     vi.stubGlobal('fetch', fetchMock);
     settings();
     fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(ASH);
 
     await ask({ type: 'wick:board-enroll' });
 
-    expect(bodies(fetchMock)).toEqual([{}]);
+    expect(bodies(fetchMock)).toEqual([{ email: ASH }]);
+  });
+
+  it('refuses to join without an account to key the profile on', async () => {
+    // Signed out, or a sidebar this build renders differently. A profile bound
+    // to nothing would be a profile nothing could ever find again.
+    const fetchMock = ok({ token: 'minted', name: 'n' });
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+    fake.grantedOrigins.add(BOARD_ORIGIN_PATTERN);
+    signedInAs(null);
+
+    expect(await ask({ type: 'wick:board-enroll' })).toEqual({
+      ok: true,
+      outcome: 'unavailable',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('writes nothing when the board is unreachable', async () => {
@@ -322,6 +353,76 @@ describe('joining', () => {
     expect(await ask({ type: 'wick:board-enroll' })).toEqual({ ok: true, outcome: 'ok' });
     expect(fetchMock).not.toHaveBeenCalled();
     expect((fake.store.get(KEYS.settings) as Settings).boardToken).toBe('tok');
+  });
+});
+
+/* ---- Switching accounts -------------------------------------------------- */
+
+describe('when the signed-in account changes', () => {
+  it('records the account without joining anything', async () => {
+    // Reading the address is free. Sending it is not, and an installation that
+    // never pressed Join never does.
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    settings();
+
+    await adopt(ASH);
+
+    expect(fake.store.get(KEYS.accountEmail)).toBe(ASH);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('re-enrols for the new account, keeping nothing from the old one', async () => {
+    const fetchMock = ok({ token: 'second-token', name: 'quiet-harbour-7781' });
+    vi.stubGlobal('fetch', fetchMock);
+    joined({ boardSubmittedThrough: '2026-08-24' });
+
+    await adopt(OTHER);
+
+    expect(bodies(fetchMock)).toEqual([{ email: OTHER }]);
+    const stored = fake.store.get(KEYS.settings) as Settings;
+    expect(stored.boardEmail).toBe(OTHER);
+    expect(stored.boardToken).toBe('second-token');
+    expect(stored.boardName).toBe('quiet-harbour-7781');
+    // The mark belongs to a profile, not to the machine.
+    expect(stored.boardSubmittedThrough).toBeNull();
+  });
+
+  it('does not leave the old account token in place when re-enrolling fails', async () => {
+    // Publishing this account's days under the previous account's token would
+    // attribute somebody's work to somebody else's public page.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
+    joined();
+
+    await adopt(OTHER);
+
+    expect((fake.store.get(KEYS.settings) as Settings).boardToken).toBeNull();
+  });
+
+  it('does nothing when the account has not actually changed', async () => {
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    joined();
+
+    await adopt(ASH);
+    // Same address, differently cased and padded, is the same account.
+    await adopt(`  ${ASH.toUpperCase()}  `);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((fake.store.get(KEYS.settings) as Settings).boardToken).toBe('tok');
+  });
+
+  it('publishes nothing while the token belongs to a different account', async () => {
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    joined();
+    history(rollup('2026-08-24', 30));
+    // Signed into another account, and not yet re-enrolled.
+    signedInAs(OTHER);
+
+    await drain(NOW);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

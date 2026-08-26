@@ -5,12 +5,16 @@
  * interface so they can be tested against a fake, and so swapping the database
  * is one adapter rather than a rewrite.
  *
- * **Identity is a bearer token, and only a bearer token.** There was a Telegram
- * chat id here; every method took one, because a chat was how somebody joined.
- * Enrolment happens from the extension now, so a participant is whoever holds
- * the token the board minted for them — there is no account, no email, no
- * handle, and nothing to recover it with. Losing the token means losing the
- * profile, which is the price of the board knowing nothing about anybody.
+ * **Identity is the Claude account email; authorisation is a bearer token.**
+ * The two are separate on purpose. The email is the profile's primary key, so
+ * one account is one profile across every browser it signs into with nothing
+ * for the user to do. The token is what a browser presents on each daily
+ * submission, so the email travels once — at enrolment — rather than every day.
+ *
+ * The token is **not** a security boundary: `enroll` issues one to anyone who
+ * presents the email, and nothing verifies that the caller owns it. That is
+ * inherent to syncing from an identifier the extension merely read off a page,
+ * and it is stated here rather than left for someone to discover.
  *
  * Note what is absent. There is no method to read when a participant submitted,
  * from where, or how often — only which calendar days they claimed and what
@@ -37,32 +41,44 @@ export interface ProfileStats {
   streak: number;
 }
 
-/** A leaderboard profile. One per participant token. */
+/** A leaderboard profile. One per Claude account. */
 export interface Profile {
   name: string;
 }
 
-/** What enrolment hands back. The token is shown to its owner exactly once. */
+/**
+ * What enrolment hands back.
+ *
+ * `existing` distinguishes "this account already had a profile and you are now
+ * a second browser on it" from "this account is new". The popup renders the
+ * same either way; the handler uses it to keep a repeat enrolment from reading
+ * as a fresh join in the logs of anyone debugging it.
+ */
 export interface Enrolment {
   token: string;
   name: string;
+  existing: boolean;
 }
 
 export interface BoardStore {
   /* ---- Joining ----------------------------------------------------------- */
 
   /**
-   * Mint a participant token and assign a name.
+   * Bind a browser to the profile for `email`, creating it if there is none.
    *
-   * The store owns both because both must be unique against what is already
-   * stored, and only the store can see that. `assign` proposes names — it is
-   * `assignName` from leaderboard/names.ts with the randomness bound — and the
-   * implementation retries with a fresh proposal on a collision.
+   * **Idempotent per account, not per browser.** A second browser signed into
+   * the same account gets its own token and the *same* name — that is the whole
+   * point of keying profiles on the email. A caller must never end up with two
+   * profiles for one account, so this cannot be implemented as a blind insert.
+   *
+   * `assign` proposes names — `assignName` from leaderboard/names.ts with the
+   * randomness bound — and the implementation retries on a collision. It is
+   * only consulted when the account has no profile yet.
    *
    * Returns `null` when no free name was found, which is a full namespace
    * rather than a failed request and is reported as such.
    */
-  enroll(assign: () => string): Promise<Enrolment | null>;
+  enroll(email: string, assign: () => string): Promise<Enrolment | null>;
 
   /* ---- Submitting -------------------------------------------------------- */
 
@@ -70,11 +86,12 @@ export interface BoardStore {
   profile(token: string): Promise<Profile | null>;
 
   /**
-   * Record one day for one participant.
+   * Record one day for the account a token belongs to.
    *
    * **Upsert, never insert.** A resubmission replaces the day rather than
    * adding to it, so a retried request corrects a total instead of inflating
-   * one.
+   * one — and two browsers on one account converge on a single row for the day
+   * rather than double-counting it.
    */
   saveDaily(token: string, row: DailyRow): Promise<void>;
 
@@ -86,20 +103,25 @@ export interface BoardStore {
    * The three standings and the streak for one name, or `null` if nobody holds
    * it.
    *
-   * `null` covers both "never taken" and "left", and callers must not be able
-   * to tell those apart — a page that distinguished them would let anyone
-   * enumerate who had quit.
+   * `null` covers "never taken", "left", and "joined but has published
+   * nothing", and callers must not be able to tell those apart — a page that
+   * distinguished them would let anyone enumerate who had quit.
    */
   stats(name: string, today: Day): Promise<ProfileStats | null>;
 
   /* ---- Leaving ----------------------------------------------------------- */
 
   /**
-   * Delete the profile and every row belonging to a token.
+   * Delete the profile, every row, and **every browser's token** for the
+   * account a token belongs to.
    *
-   * There is no soft-delete and no tombstone. A participant who leaves is gone
-   * from the board on the next request, and the name they held returns to the
-   * pool — nothing is kept to prove they were ever there.
+   * Account-wide rather than browser-wide, and that is the right scope: Leave
+   * says the profile is gone, and a version that only unbound the browser it
+   * was pressed in would leave the public page up and another browser still
+   * publishing to it.
+   *
+   * There is no soft-delete and no tombstone. The name returns to the pool and
+   * nothing is kept to prove the account was ever there.
    */
   forget(token: string): Promise<void>;
 }

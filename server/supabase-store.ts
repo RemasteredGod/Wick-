@@ -105,35 +105,51 @@ export function createSupabaseStore(
   /**
    * Every participant's rows, for the ranking functions. Two queries, not N.
    *
-   * Profiles and rows share `token_hash`, so this is a straight join — the old
-   * schema keyed profiles by chat and rows by token, and needed a third table
-   * to reconcile them. One token is one participant now, which is what makes
-   * the extra hop unnecessary.
+   * Profiles and rows share the account email, so this is a straight join. Two
+   * browsers on one account write to the same rows by construction — the
+   * composite key is (email, day) — so there is nothing to reconcile here and
+   * nobody can appear twice at half strength.
    */
   async function participants(): Promise<Participant[]> {
     const [profiles, rows] = await Promise.all([
-      rest<{ token_hash: string; name: string }>('profiles?select=token_hash,name'),
-      rest<{ token_hash: string; day: string; messages: number }>(
-        'daily_rows?select=token_hash,day,messages',
+      rest<{ email: string; name: string }>('profiles?select=email,name'),
+      rest<{ email: string; day: string; messages: number }>(
+        'daily_rows?select=email,day,messages',
       ),
     ]);
 
-    const byToken = new Map<string, DailyRow[]>();
+    const byEmail = new Map<string, DailyRow[]>();
     for (const row of rows) {
-      const list = byToken.get(row.token_hash) ?? [];
+      const list = byEmail.get(row.email) ?? [];
       list.push({ day: row.day, messages: row.messages });
-      byToken.set(row.token_hash, list);
+      byEmail.set(row.email, list);
     }
 
     return profiles.map((profile) => ({
       name: profile.name,
-      rows: byToken.get(profile.token_hash) ?? [],
+      rows: byEmail.get(profile.email) ?? [],
     }));
+  }
+
+  /** The account a bearer token belongs to, or null. */
+  async function emailFor(token: string): Promise<string | null> {
+    const rows = await rest<{ email: string }>(
+      `tokens?token_hash=eq.${encodeURIComponent(hashToken(token))}&select=email&limit=1`,
+    );
+    return rows[0]?.email ?? null;
+  }
+
+  /** Point a fresh token at an account. */
+  async function bindToken(token: string, email: string): Promise<void> {
+    await rest('tokens', {
+      method: 'POST',
+      body: JSON.stringify({ token_hash: hashToken(token), email }),
+    });
   }
 
   return {
     /**
-     * Mint a token and claim a name.
+     * Bind a browser to the profile for an account, creating it if new.
      *
      * The insert is the uniqueness check: `name_folded` is a unique column, so
      * two concurrent enrolments proposing the same name cannot both succeed —
@@ -148,50 +164,83 @@ export function createSupabaseStore(
      * it nothing at all. Anything that is not a name conflict is raised on the
      * first attempt, and the handler answers 503 in under a second.
      */
-    async enroll(assign) {
+    async enroll(email, assign) {
+      const token = mintToken();
+
+      // An account that already has a profile gets a second token pointing at
+      // it, and keeps its name. This is the whole cross-browser story: the
+      // primary key is the account, so there is nothing to look up but the
+      // email and nothing for the user to do.
+      const held = await rest<{ name: string }>(
+        `profiles?email=eq.${encodeURIComponent(email)}&select=name&limit=1`,
+      );
+      const existing = held[0];
+
+      if (existing !== undefined) {
+        await bindToken(token, email);
+        return { token, name: existing.name, existing: true };
+      }
+
       for (let attempt = 0; attempt < NAME_ATTEMPTS; attempt += 1) {
         const name = assign();
-        const token = mintToken();
 
         try {
           await rest('profiles', {
             method: 'POST',
-            body: JSON.stringify({
-              token_hash: hashToken(token),
-              name,
-              name_folded: fold(name),
-            }),
+            body: JSON.stringify({ email, name, name_folded: fold(name) }),
           });
         } catch (error) {
-          if (error instanceof RestError && error.status === 409) continue;
-          throw error;
+          // A 409 is either the name being taken, or two browsers on one
+          // account racing to create the profile. Re-reading settles both: if
+          // the account now has a profile, the race is what happened and its
+          // name is the answer.
+          if (!(error instanceof RestError) || error.status !== 409) throw error;
+
+          const raced = (
+            await rest<{ name: string }>(
+              `profiles?email=eq.${encodeURIComponent(email)}&select=name&limit=1`,
+            )
+          )[0];
+          if (raced !== undefined) {
+            await bindToken(token, email);
+            return { token, name: raced.name, existing: true };
+          }
+          continue;
         }
 
-        return { token, name };
+        await bindToken(token, email);
+        return { token, name, existing: false };
       }
       return null;
     },
 
     async profile(token) {
+      const email = await emailFor(token);
+      if (email === null) return null;
+
       const rows = await rest<{ name: string }>(
-        `profiles?token_hash=eq.${encodeURIComponent(hashToken(token))}&select=name&limit=1`,
+        `profiles?email=eq.${encodeURIComponent(email)}&select=name&limit=1`,
       );
       const row = rows[0];
       return row === undefined ? null : { name: row.name };
     },
 
     async saveDaily(token, row) {
+      const email = await emailFor(token);
+      // A token nobody holds writes nothing. The handler checks first and
+      // answers 401, so reaching here means the profile was deleted between the
+      // two calls — a race whose right outcome is silence, not a row keyed on
+      // an account that no longer exists.
+      if (email === null) return;
+
       // `resolution=merge-duplicates` makes this an upsert on the composite
       // primary key, so a resubmission corrects the day rather than adding to
-      // it or failing on a conflict.
+      // it or failing on a conflict — and two browsers on one account converge
+      // on a single row instead of double-counting the day.
       await rest('daily_rows', {
         method: 'POST',
         prefer: 'resolution=merge-duplicates',
-        body: JSON.stringify({
-          token_hash: hashToken(token),
-          day: row.day,
-          messages: row.messages,
-        }),
+        body: JSON.stringify({ email, day: row.day, messages: row.messages }),
       });
     },
 
@@ -208,12 +257,20 @@ export function createSupabaseStore(
     },
 
     async forget(token) {
-      const hash = encodeURIComponent(hashToken(token));
-      // Rows first, then the profile they hang off. The other order would leave
-      // rows keyed by a hash nothing points at any more — invisible to the
-      // board, which reads through profiles, and impossible to delete later.
-      await rest(`daily_rows?token_hash=eq.${hash}`, { method: 'DELETE' });
-      await rest(`profiles?token_hash=eq.${hash}`, { method: 'DELETE' });
+      const email = await emailFor(token);
+      if (email === null) return;
+      const key = encodeURIComponent(email);
+
+      // Account-wide, not browser-wide. Leave says the profile is gone; a
+      // version that unbound only the browser it was pressed in would leave the
+      // public page up and another browser still publishing to it.
+      //
+      // Rows and tokens before the profile they hang off. The schema cascades,
+      // but the explicit order does not depend on that constraint surviving a
+      // database somebody rebuilt by hand.
+      await rest(`daily_rows?email=eq.${key}`, { method: 'DELETE' });
+      await rest(`tokens?email=eq.${key}`, { method: 'DELETE' });
+      await rest(`profiles?email=eq.${key}`, { method: 'DELETE' });
     },
   };
 }

@@ -23,8 +23,9 @@ notifications, so you never have to open the popup to find out you are nearly
 out. No account, no credential, no server.
 
 **Optional leaderboard.** One number a day — how many messages you sent —
-published under a name the board assigns you. Off until you press Join, and
-Leave deletes everything you published.
+published under a name the board assigns you. One Claude account is one profile
+across every browser you sign into, with nothing to link up. Off until you press
+Join, and Leave deletes everything you published.
 
 The toolbar icon is a gauge, not a logo. It depletes and changes colour as you
 consume quota, so status is readable without clicking.
@@ -116,9 +117,12 @@ it.
 ## Privacy
 
 Everything stays local by default. Alerts are browser notifications and involve
-no network at all. The only thing that ever leaves the machine is a daily
-message count, and only after you press Join. No analytics, telemetry, or crash
-reporting. See [`PRIVACY.md`](PRIVACY.md).
+no network at all. Nothing leaves the machine until you press Join — after which
+the board holds your Claude account's email as your profile's key, and receives a
+daily message count. **Nothing verifies that address**, so anyone who knows it
+could claim your profile; the board is self-reported fun and this is the price of
+it needing no setup. No analytics, telemetry, or crash reporting. See
+[`PRIVACY.md`](PRIVACY.md), which spells both out.
 
 ## Architecture
 
