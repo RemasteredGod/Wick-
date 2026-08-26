@@ -14,11 +14,11 @@
  * would be interpreting it.
  */
 
-import { assignName, fold, validateName } from '../leaderboard/names';
-import { rankedTotal } from '../leaderboard/ranking';
-import { mintCode, normaliseCode } from './codes';
-import type { Day } from '../leaderboard/periods';
-import type { RelayStore } from './store';
+import { assignName, fold, validateName } from '../leaderboard/names.js';
+import { rankedTotal } from '../leaderboard/ranking.js';
+import { mintCode, normaliseCode } from './codes.js';
+import type { Day } from '../leaderboard/periods.js';
+import type { RelayStore } from './store.js';
 
 /* ---- Parsing -------------------------------------------------------------- */
 

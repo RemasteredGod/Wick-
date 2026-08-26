@@ -15,7 +15,7 @@
  * the source.
  */
 
-import { ADJECTIVES, NOUNS } from './words';
+import { ADJECTIVES, NOUNS } from './words.js';
 
 /** Bounds for a purchased name. Long enough to be a name, short enough for a card. */
 export const MIN_LENGTH = 3;

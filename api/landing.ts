@@ -7,8 +7,8 @@
  * forever and the function runs about once a day.
  */
 
-import { renderLanding } from '../leaderboard/render';
-import { sendHtml, type Req, type Res } from '../relay/http';
+import { renderLanding } from '../leaderboard/render.js';
+import { sendHtml, type Req, type Res } from '../relay/http.js';
 
 export default function handler(_req: Req, res: Res): void {
   // Nothing on this page changes between deployments, so it is cached hard.

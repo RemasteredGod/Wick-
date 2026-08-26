@@ -14,9 +14,9 @@
  * refuses to let both transports run at once.
  */
 
-import { createMemoryStore } from './memory-store';
-import { deleteWebhook, dispatch, nextOffset, pollOnce } from './polling';
-import type { TelegramConfig } from './telegram';
+import { createMemoryStore } from './memory-store.js';
+import { deleteWebhook, dispatch, nextOffset, pollOnce } from './polling.js';
+import type { TelegramConfig } from './telegram.js';
 
 const token = process.env['TELEGRAM_BOT_TOKEN'];
 if (token === undefined || token === '') {

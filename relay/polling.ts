@@ -21,8 +21,8 @@
  * token will steal updates from each other at random.
  */
 
-import { handle, parseCommand, type Context } from './commands';
-import { sendMessage, type TelegramConfig } from './telegram';
+import { handle, parseCommand, type Context } from './commands.js';
+import { sendMessage, type TelegramConfig } from './telegram.js';
 
 /**
  * How long Telegram holds an empty request open, in seconds.

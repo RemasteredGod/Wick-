@@ -13,12 +13,12 @@
  * Nothing here is per-viewer, and nothing may become so without giving that up.
  */
 
-import { renderBoard } from '../leaderboard/render';
-import { BOARD_SIZE } from '../leaderboard/ranking';
-import { configFromEnv, createSupabaseStore } from '../relay/supabase-store';
-import { queryParam, sendHtml, type Req, type Res } from '../relay/http';
-import type { Period } from '../leaderboard/periods';
-import type { Standing } from '../leaderboard/ranking';
+import { renderBoard } from '../leaderboard/render.js';
+import { BOARD_SIZE } from '../leaderboard/ranking.js';
+import { configFromEnv, createSupabaseStore } from '../relay/supabase-store.js';
+import { queryParam, sendHtml, type Req, type Res } from '../relay/http.js';
+import type { Period } from '../leaderboard/periods.js';
+import type { Standing } from '../leaderboard/ranking.js';
 
 export default async function handler(req: Req, res: Res): Promise<void> {
   const period = readPeriod(req);

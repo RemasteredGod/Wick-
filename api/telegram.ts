@@ -11,9 +11,9 @@
  * to their browser directly and never touches this deployment.
  */
 
-import { handleUpdate } from '../relay/webhook';
-import { configFromEnv, createSupabaseStore } from '../relay/supabase-store';
-import { header, readJson, sendText, type Req, type Res } from '../relay/http';
+import { handleUpdate } from '../relay/webhook.js';
+import { configFromEnv, createSupabaseStore } from '../relay/supabase-store.js';
+import { header, readJson, sendText, type Req, type Res } from '../relay/http.js';
 
 export default async function handler(req: Req, res: Res): Promise<void> {
   if (req.method !== 'POST') {
