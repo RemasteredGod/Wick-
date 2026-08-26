@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "tsc --noEmit",
+  "outputDirectory": "public",
+  "framework": null,
+  "functions": {
+    "api/*.ts": {
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/landing" },
+    { "source": "/board", "destination": "/api/board" }
+  ]
+}
