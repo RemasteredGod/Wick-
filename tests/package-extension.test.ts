@@ -124,6 +124,7 @@ describe('package CI configuration', () => {
     expect(workflow).not.toMatch(/(?:contents|packages|actions|id-token): write/u);
     expect(workflow).toContain('persist-credentials: false');
     expect(workflow).toContain("node-version: '24'");
+    expect(workflow).toContain('corepack enable pnpm');
     expect(workflow).toContain('corepack install --global pnpm@10.33.4');
     expect(workflow).toContain('package-manager-cache: false');
     expect(workflow).toContain('pnpm install --frozen-lockfile');

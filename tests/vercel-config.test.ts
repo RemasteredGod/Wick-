@@ -48,6 +48,7 @@ describe('Vercel build contract', () => {
     );
     for (const workflow of workflows) {
       expect(workflow).toContain("node-version: '24'");
+      expect(workflow).toContain('corepack enable pnpm');
       expect(workflow).toContain('corepack install --global pnpm@10.33.4');
       expect(workflow).not.toContain('pnpm@11.23.0');
     }
