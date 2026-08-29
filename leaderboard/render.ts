@@ -384,7 +384,7 @@ ${steps}
 
 <footer class="foot">
   <p><a href="https://github.com/RemasteredGod/Wick-">Source</a> ·
-  <a href="https://github.com/RemasteredGod/Wick-/blob/master/PRIVACY.md">Privacy</a> ·
+  <a href="/privacy">Privacy</a> ·
   AGPL-3.0-or-later</p>
 </footer>`,
   );

@@ -54,6 +54,13 @@ describe('Vercel build contract', () => {
     }
   });
 
+  it('routes the published privacy address to its handler', async () => {
+    const vercel = await json('vercel.json');
+    const rewrites = vercel['rewrites'] as Array<Record<string, unknown>>;
+
+    expect(rewrites).toContainEqual({ source: '/privacy', destination: '/api/privacy' });
+  });
+
   it('executes emitted server rendering under Node during every deployment check', async () => {
     const pkg = await json('package.json');
     const vercel = await json('vercel.json');

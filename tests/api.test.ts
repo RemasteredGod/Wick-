@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import boardHandler from '../api/board';
 import enrollHandler from '../api/enroll';
 import landingHandler from '../api/landing';
+import privacyHandler from '../api/privacy';
 import leaveHandler from '../api/leave';
 import profileHandler from '../api/profile';
 import submitHandler from '../api/submit';
@@ -54,11 +55,27 @@ describe('public page methods and caching', () => {
     ['landing', landingHandler],
     ['board', boardHandler],
     ['profile', profileHandler],
+    ['privacy', privacyHandler],
   ])('%s allows only GET and HEAD', async (_name, handler) => {
     const capture = await invoke(handler, request({ method: 'POST', url: '/u/quiet-fern' }));
     expect(capture.status()).toBe(405);
     expect(capture.headers.allow).toBe('GET, HEAD');
     expect(capture.headers['cache-control']).toBe('no-store');
+  });
+
+  it('sends the privacy address to the one canonical policy, cached and followable', async () => {
+    const capture = await invoke(privacyHandler, request({ method: 'GET', url: '/privacy' }));
+
+    expect(capture.status()).toBe(308);
+    expect(capture.headers.location).toBe(
+      'https://github.com/RemasteredGod/Wick-/blob/master/PRIVACY.md',
+    );
+    expect(capture.headers['cache-control']).toContain('s-maxage=86400');
+    // A store reviewer's HEAD must not be rewritten into a GET by the redirect.
+    const head = await invoke(privacyHandler, request({ method: 'HEAD', url: '/privacy' }));
+    expect(head.status()).toBe(308);
+    expect(head.body()).toBe('');
+    expect(Number(head.headers['content-length'])).toBeGreaterThan(0);
   });
 
   it('serves bodyless HEAD responses without turning them into writes', async () => {

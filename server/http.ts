@@ -96,6 +96,31 @@ export function hasJsonContentType(req: Req): boolean {
   return value.split(';', 1)[0]?.trim().toLowerCase() === 'application/json';
 }
 
+/**
+ * Redirect permanently to a canonical document, and end the response.
+ *
+ * 308 rather than 301: a 301 historically licenses a client to rewrite the
+ * method, and this route is published as an external policy address where a
+ * reviewer's HEAD must stay a HEAD. The body repeats the destination as plain
+ * text for the rare client that does not follow, and the security headers are
+ * the page set because the destination is a document, not an API result.
+ */
+export function sendRedirect(
+  res: Res,
+  location: string,
+  cacheControl: string,
+  headOnly = false,
+): void {
+  const encoded = Buffer.from(location, 'utf8');
+  res.statusCode = 308;
+  res.setHeader('Location', location);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Length', String(encoded.length));
+  res.setHeader('Cache-Control', cacheControl);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+  res.end(headOnly ? undefined : encoded);
+}
+
 /** Send a short plain-text body and end the response. */
 export function sendText(res: Res, status: number, body: string, headOnly = false): void {
   const encoded = Buffer.from(body, 'utf8');
