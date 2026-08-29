@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import BRAND_IDENTITY from '../brand/v3/geometry.json';
+import BRAND_IDENTITY from '../brand/v3/geometry.json' with { type: 'json' };
 
 import {
   escapeHtml,

@@ -1,4 +1,4 @@
-import identity from '../../brand/v3/geometry.json';
+import identity from '../../brand/v3/geometry.json' with { type: 'json' };
 
 /** The exact owner-approved v3 geometry, shared with the icon generator as inert JSON. */
 export const MARK_IDENTITY = identity;

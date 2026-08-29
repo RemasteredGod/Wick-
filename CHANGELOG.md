@@ -31,6 +31,8 @@ All notable changes to Wick are documented here. This project follows
   overwrite a successful Join-again state.
 - Vercel preview installs retain required TypeScript declarations under
   `NODE_ENV=production` and use pinned Node 24 and pnpm 10 tooling.
+- Vercel public pages use Node 24-compatible shared brand geometry imports, and
+  deployment validation executes every emitted server-rendered route.
 - Release status now distinguishes repository implementation from hosted,
   protocol, browser, and store-review gates.
 

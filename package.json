@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:build": "node scripts/verify-extension-build.mjs",
+    "verify:vercel-runtime": "node scripts/verify-vercel-runtime.mjs",
     "package": "node scripts/package-extension.mjs",
     "verify:package": "node scripts/verify-extension-package.mjs"
   },

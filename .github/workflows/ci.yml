@@ -48,6 +48,9 @@ jobs:
       - name: Typecheck Vercel deployment
         run: pnpm exec tsc --project tsconfig.vercel.json --noEmit
 
+      - name: Verify Vercel Node runtime
+        run: pnpm verify:vercel-runtime
+
       - name: Build extension
         run: pnpm build
 

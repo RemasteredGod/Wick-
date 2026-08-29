@@ -53,4 +53,23 @@ describe('Vercel build contract', () => {
       expect(workflow).not.toContain('pnpm@11.23.0');
     }
   });
+
+  it('executes emitted server rendering under Node during every deployment check', async () => {
+    const pkg = await json('package.json');
+    const vercel = await json('vercel.json');
+    const workflows = await Promise.all([
+      text('.github/workflows/ci.yml'),
+      text('.github/workflows/release.yml'),
+    ]);
+
+    expect((pkg['scripts'] as Record<string, unknown>)['verify:vercel-runtime']).toBe(
+      'node scripts/verify-vercel-runtime.mjs',
+    );
+    expect(vercel['buildCommand']).toBe(
+      'tsc --noEmit -p tsconfig.vercel.json && pnpm verify:vercel-runtime',
+    );
+    for (const workflow of workflows) {
+      expect(workflow).toContain('pnpm verify:vercel-runtime');
+    }
+  });
 });
