@@ -2,18 +2,10 @@ import { useState } from 'preact/hooks';
 import type { BoardOutcome as BoundaryOutcome } from '~/core/messages';
 import { ALERT_THRESHOLD_CHOICES, type DisplayOptions, type Settings } from '~/core/types';
 
-/**
- * Where the Project links point.
- *
- * Both the repository URL and the Ko-fi handle are the project's own. The
- * handle is displayed as well as linked (the archive's row shows it under the
- * label, ext:222), so it is written once here rather than twice in the markup.
- */
+/** Where the Project links point. */
 const REPO_URL = 'https://github.com/RemasteredGod/Wick-';
 const ISSUES_URL = `${REPO_URL}/issues`;
 const LEADERBOARD_URL = 'https://usewick.lol';
-const KOFI_HANDLE = 'ko-fi.com/remasteredgod';
-const KOFI_URL = `https://${KOFI_HANDLE}`;
 
 /**
  * How a leaderboard action ended. The view renders it; the worker decides it.
@@ -273,12 +265,6 @@ export function Settings({
               Report an issue
             </a>
           </div>
-
-          {/* An ask, not an ad: it sits under Project, at the bottom, once. */}
-          <a class="wick-settings__support" href={KOFI_URL} target="_blank" rel="noreferrer">
-            <span class="wick-settings__support-label">Support on Ko-fi</span>
-            <span class="wick-settings__support-handle">{KOFI_HANDLE}</span>
-          </a>
         </section>
       </div>
 

@@ -172,6 +172,7 @@ export function UsagePanel({
             enrolled={settings.boardToken !== null}
             name={settings.boardName}
             today={messagesToday(history, now)}
+            syncState={settings.boardSyncState}
           />
         </div>
 

@@ -14,7 +14,6 @@ import type { RuntimeResponse } from '~/core/messages';
 import type { DailyRollup, Snapshot } from '~/core/types';
 import { ACTIVE_INTERVAL_MINUTES, POLL_ALARM, IDLE_INTERVAL_MINUTES } from '~/background/alarms';
 import {
-  RECONCILE_DELAY_MS,
   handleRuntimeMessage,
   initCollector,
   poll,
@@ -60,11 +59,19 @@ function storedHistory(): DailyRollup[] {
 }
 
 /** Drive the message listener directly, and hold it to its reply contract. */
-function ask(message: unknown): Promise<RuntimeResponse | undefined> {
+function ask(
+  message: unknown,
+  sender?: chrome.runtime.MessageSender,
+): Promise<RuntimeResponse | undefined> {
+  const type = (message as { type?: unknown } | null)?.type;
+  const contentOrigin =
+    type === 'wick:stream-limits' || type === 'wick:message-sent' || type === 'wick:tab-open';
+  const actualSender = sender ?? (contentOrigin ? fake.contentSender() : fake.popupSender());
+
   return new Promise((resolve) => {
     const keptOpen = handleRuntimeMessage(
       message,
-      {} as chrome.runtime.MessageSender,
+      actualSender,
       resolve as (response: RuntimeResponse) => void,
     );
     // A listener that replies asynchronously must return true, or Chrome closes
@@ -255,11 +262,13 @@ describe('runtime messages', () => {
     expect(response).toMatchObject({ ok: true, state: { snapshot: null, history: [] } });
   });
 
-  it('counts a message into today’s rollup', async () => {
-    await ask({ type: 'wick:message-sent', at: now, id: 'req-1' });
+  it('does not let an unconfirmed page completion create durable counts', async () => {
+    await expect(
+      ask({ type: 'wick:message-sent', at: now, id: 'req-1' }),
+    ).resolves.toBeUndefined();
 
-    expect(storedHistory()[0]?.messageCount).toBe(1);
-    expect(storedHistory()[0]?.hourlyMessages[new Date(now).getHours()]).toBe(1);
+    expect(storedHistory()).toEqual([]);
+    expect(fake.store.get(KEYS.boardLedger)).toBeUndefined();
   });
 
   it('polls on wick:refresh', async () => {
@@ -271,86 +280,61 @@ describe('runtime messages', () => {
     expect(storedSnapshot()?.source).toBe('usage');
   });
 
-  it('accepts a stream reading when nothing authoritative has been written', async () => {
+  it('does not let unconfirmed stream or refusal data create a snapshot or history', async () => {
     const windows = [
-      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true },
+      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true, role: 'session' },
     ];
 
-    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
+    await expect(
+      ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' }),
+    ).resolves.toBeUndefined();
+    await expect(
+      ask({ type: 'wick:stream-limits', windows, at: now, source: 'rejection' }),
+    ).resolves.toBeUndefined();
 
-    expect(storedSnapshot()).toMatchObject({ source: 'stream', fetchedAt: now });
-    expect(storedHistory()[0]?.windows).toEqual({ '5h': 51 });
+    expect(storedSnapshot()).toBeUndefined();
+    expect(storedHistory()).toEqual([]);
+    expect(requested).toEqual([]);
   });
 
-  it('does not let a stream reading overwrite a newer authoritative snapshot', async () => {
+  it('keeps polling as the only authoritative percentage path', async () => {
     fake.cookies.set('lastActiveOrg', 'org-42');
     stubFetch((url) => (url.endsWith('/usage') ? usageResponse(60) : new Response('', { status: 404 })));
     await poll('alarm');
 
-    const stale = [
-      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 99, status: 'ok', resetsAt: null, active: true },
+    const forged = [
+      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 99, status: 'ok', resetsAt: null, active: true, role: 'session' },
     ];
-    await ask({ type: 'wick:stream-limits', windows: stale, at: now - 1_000, source: 'stream' });
+    await ask({ type: 'wick:stream-limits', windows: forged, at: now, source: 'stream' });
 
     expect(storedSnapshot()).toMatchObject({ source: 'usage', fetchedAt: now });
     expect(storedSnapshot()?.windows[0]?.utilization).toBe(60);
-    // And the refused reading must not sneak into the rollup either, where the
-    // peak would preserve it long after the snapshot rejected it.
     expect(storedHistory()[0]?.windows).toEqual({ '5h': 60 });
   });
-});
 
-describe('reconciliation', () => {
-  /**
-   * A `message_limit` event is the server's own number, but it is the number as
-   * of the moment the send started. Wick shows it immediately because it is
-   * what the user just did — and then has to go and ask, or the optimistic
-   * reading stands until the next scheduled poll.
-   */
-  it('asks the endpoint about a send it saw on the stream', async () => {
-    fake.cookies.set('lastActiveOrg', 'org-42');
-    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(70) : new Response('', { status: 404 })));
-
-    const windows = [
-      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true, role: 'session' },
-    ];
-    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
-
-    // Before the delay: the optimistic number, and no request.
-    expect(storedSnapshot()?.source).toBe('stream');
-    expect(requested).toHaveLength(0);
-
-    await vi.advanceTimersByTimeAsync(RECONCILE_DELAY_MS + 10);
-
-    expect(storedSnapshot()?.source).toBe('usage');
-    expect(storedSnapshot()?.windows[0]?.utilization).toBe(70);
+  it('rejects popup actions from a wrong extension id or non-extension URL', async () => {
+    expect(
+      await ask({ type: 'wick:get-state' }, { ...fake.popupSender(), id: 'other-extension' }),
+    ).toBeUndefined();
+    expect(
+      await ask({ type: 'wick:get-state' }, fake.contentSender()),
+    ).toBeUndefined();
   });
 
-  it('schedules one fetch however many events a single send produces', async () => {
+  it('rejects content actions from a wrong id, URL, or frame', async () => {
     fake.cookies.set('lastActiveOrg', 'org-42');
-    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(70) : new Response('', { status: 404 })));
+    stubFetch((url) => (url.endsWith('/usage') ? usageResponse(20) : new Response('', { status: 404 })));
 
-    const windows = [
-      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 51, status: 'ok', resetsAt: null, active: true, role: 'session' },
-    ];
-    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'stream' });
-    await ask({ type: 'wick:stream-limits', windows, at: now + 1, source: 'rejection' });
-    await ask({ type: 'wick:stream-limits', windows, at: now + 2, source: 'stream' });
+    for (const sender of [
+      { ...fake.contentSender(), id: 'other-extension' },
+      fake.contentSender('https://example.com/forged'),
+      fake.contentSender('https://claude.ai/chats', 1),
+      fake.popupSender(),
+    ]) {
+      expect(await ask({ type: 'wick:tab-open' }, sender)).toBeUndefined();
+    }
 
-    await vi.advanceTimersByTimeAsync(RECONCILE_DELAY_MS + 10);
-
-    // One send, one reconciliation. Three would be three requests for one fact.
-    expect(requested.filter((url) => url.endsWith('/usage'))).toHaveLength(1);
-  });
-
-  it('records a refusal as a refusal, not as a stream reading', async () => {
-    const windows = [
-      { key: '5h', label: 'Session', shortLabel: 'Session', utilization: 100, status: 'exceeded', resetsAt: null, active: true, role: 'session' },
-    ];
-
-    await ask({ type: 'wick:stream-limits', windows, at: now, source: 'rejection' });
-
-    expect(storedSnapshot()?.windows[0]?.source).toBe('rejection');
+    expect(storedSnapshot()).toBeUndefined();
   });
 });
 
@@ -364,22 +348,6 @@ describe('coalescing', () => {
     // Three triggers, one answer. Without this they stack: several requests for
     // one number, and several writes racing to record it.
     expect(requested.filter((url) => url.endsWith('/usage'))).toHaveLength(1);
-  });
-});
-
-describe('message counting', () => {
-  it('counts the same accepted completion once', async () => {
-    await ask({ type: 'wick:message-sent', at: now, id: 'req-7' });
-    await ask({ type: 'wick:message-sent', at: now, id: 'req-7' });
-
-    expect(storedHistory()[0]?.messageCount).toBe(1);
-  });
-
-  it('counts two different sends twice', async () => {
-    await ask({ type: 'wick:message-sent', at: now, id: 'req-1' });
-    await ask({ type: 'wick:message-sent', at: now, id: 'req-2' });
-
-    expect(storedHistory()[0]?.messageCount).toBe(2);
   });
 });
 

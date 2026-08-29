@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        # actions/setup-node v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable pnpm
+          corepack install --global pnpm@10.33.4
+          pnpm --version
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Typecheck extension and shared code
+        run: pnpm typecheck
+
+      - name: Typecheck Vercel deployment
+        run: pnpm exec tsc --project tsconfig.vercel.json --noEmit
+
+      - name: Build extension
+        run: pnpm build
+
+      - name: Verify unpacked extension
+        run: pnpm verify:build
+
+      - name: Package and verify extension
+        run: |
+          pnpm package
+          pnpm verify:package
+
+      - name: Reproduce package bytes
+        run: |
+          node scripts/package-extension.mjs dist artifacts/wick-repeat.zip
+          node --input-type=module -e "import { readFile } from 'node:fs/promises'; import pkg from './package.json' with { type: 'json' }; const [a,b] = await Promise.all([readFile('artifacts/wick-' + pkg.version + '.zip'), readFile('artifacts/wick-repeat.zip')]); if (!a.equals(b)) throw new Error('Repeated package bytes differ'); console.log('Repeated package bytes are identical');"
+          node scripts/verify-extension-package.mjs artifacts/wick-repeat.zip dist

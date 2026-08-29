@@ -11,10 +11,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MARK_SIZES, rasterLayout } from '~/assets/mark';
+import { rasterLayout } from '~/assets/mark';
 import {
   ICON_SIZES,
   REDRAW_BUCKET_PERCENT,
+  actionTitleFor,
   bucketFor,
   gaugeFor,
   iconDisplayList,
@@ -29,8 +30,11 @@ import { installChromeMock, uninstallChromeMock, type FakeChrome } from './helpe
 
 /* ---- Fixtures ------------------------------------------------------------ */
 
-const TRACK = '#332f2b';
+const TILE = '#141312';
+const TRACK_REGULAR = '#3f3c37';
+const TRACK_SMALL = '#5f5b55';
 const FLAME = '#e8a33d';
+const FLAME_END = '#c96442';
 const ACCENT = '#c96442';
 const WARN = '#d99a2b';
 const CRIT = '#d92b31';
@@ -54,11 +58,15 @@ function snapshotOf(...windows: { utilization: number | null; status?: string }[
 }
 
 function rectOf(ops: readonly DrawOp[]): FillRectOp | undefined {
-  return ops.find((op): op is FillRectOp => op.kind === 'rect');
+  return ops.find((op): op is FillRectOp => op.kind === 'rect' && op.clip !== null);
+}
+
+function tileOf(ops: readonly DrawOp[]): FillRectOp | undefined {
+  return ops.find((op): op is FillRectOp => op.kind === 'rect' && op.clip === null);
 }
 
 function flameColourOf(ops: readonly DrawOp[]): string | undefined {
-  return ops[0]?.colour;
+  return ops.find((op) => op.kind === 'path')?.colour;
 }
 
 /* ---- Reading the snapshot ------------------------------------------------ */
@@ -127,6 +135,28 @@ describe('gaugeFor', () => {
   });
 });
 
+/* ---- Accessible action title -------------------------------------------- */
+
+describe('actionTitleFor', () => {
+  it('describes a genuinely unknown reading without inventing zero or full', () => {
+    expect(actionTitleFor({ remaining: null, state: 'unknown' })).toBe('Wick — usage unknown');
+  });
+
+  it('retains a known critical status when remaining is unavailable', () => {
+    expect(actionTitleFor({ remaining: null, state: 'crit' })).toBe(
+      'Wick — remaining unknown, critical',
+    );
+  });
+
+  it.each([
+    [{ remaining: 70, state: 'ok' }, 'Wick — 70% remaining, normal'],
+    [{ remaining: 18, state: 'warn' }, 'Wick — 18% remaining, warning'],
+    [{ remaining: 2, state: 'crit' }, 'Wick — 2% remaining, critical'],
+  ] as const)('describes known remaining and status', (gauge, expected) => {
+    expect(actionTitleFor(gauge)).toBe(expected);
+  });
+});
+
 /* ---- Colour -------------------------------------------------------------- */
 
 describe('iconDisplayList — colour', () => {
@@ -154,13 +184,53 @@ describe('iconDisplayList — colour', () => {
     expect(rect?.height).toBeGreaterThan(0);
   });
 
-  it('lights the flame whenever there is a reading, in the archive colour', () => {
+  it('uses a solid ember and small optical track at 16px', () => {
     const ops = iconDisplayList({ remaining: 40, state: 'ok' }, 16);
-    expect(flameColourOf(ops)).toBe(FLAME);
+    const [ember, track] = ops.filter((op) => op.kind === 'path');
+    expect(ember?.colour).toBe(FLAME);
+    expect(ember?.gradient).toBeNull();
+    expect(track?.colour).toBe(TRACK_SMALL);
   });
 
-  it('uses only the mirrored tokens', () => {
-    const allowed = new Set([TRACK, FLAME, ACCENT, WARN, CRIT, DIM]);
+  it('uses the exact ember gradient and regular track at 32px and above', () => {
+    for (const size of [32, 48]) {
+      const ops = iconDisplayList({ remaining: 40, state: 'ok' }, size);
+      const [ember, track] = ops.filter((op) => op.kind === 'path');
+      expect(ember).toBeDefined();
+      expect(ember?.gradient).not.toBeNull();
+      if (ember === undefined || ember.gradient === null) throw new Error('missing ember gradient');
+      expect(ember.gradient).toMatchObject({ start: FLAME, end: FLAME_END });
+      expect(ember.gradient.x2).toBeCloseTo(
+        ember.gradient.x1 + rasterLayout(size).ember.bounds.width * 0.45,
+      );
+      expect(track?.colour).toBe(TRACK_REGULAR);
+    }
+  });
+
+  it('draws an opaque dark tile behind every runtime size', () => {
+    for (const size of ICON_SIZES) {
+      expect(tileOf(iconDisplayList({ remaining: null, state: 'unknown' }, size))).toMatchObject({
+        x: 0,
+        y: 0,
+        width: size,
+        height: size,
+        colour: TILE,
+      });
+    }
+  });
+
+  it('uses only the reviewed mirrored tokens', () => {
+    const allowed = new Set([
+      TILE,
+      TRACK_REGULAR,
+      TRACK_SMALL,
+      FLAME,
+      FLAME_END,
+      ACCENT,
+      WARN,
+      CRIT,
+      DIM,
+    ]);
     const gauges: Gauge[] = [
       { remaining: null, state: 'unknown' },
       { remaining: null, state: 'crit' },
@@ -180,7 +250,7 @@ describe('iconDisplayList — colour', () => {
 
 describe('iconDisplayList — the gauge', () => {
   it('anchors the fill to the bottom of the body and clips it to the body', () => {
-    const { body } = rasterLayout(MARK_SIZES.hero, 48);
+    const { body } = rasterLayout(48);
     const rect = rectOf(iconDisplayList({ remaining: 50, state: 'ok' }, 48));
 
     expect(rect?.y ?? 0).toBeGreaterThan(body.y);
@@ -190,7 +260,7 @@ describe('iconDisplayList — the gauge', () => {
   });
 
   it('fills the whole body at 100%', () => {
-    const { body } = rasterLayout(MARK_SIZES.hero, 48);
+    const { body } = rasterLayout(48);
     const rect = rectOf(iconDisplayList({ remaining: 100, state: 'ok' }, 48));
     expect(rect?.y).toBe(body.y);
     expect(rect?.height).toBe(body.height);
@@ -231,7 +301,7 @@ describe('iconDisplayList — unknown', () => {
   });
 
   it('floats its mark at mid-height, where a level could never be', () => {
-    const { body } = rasterLayout(MARK_SIZES.hero, 16);
+    const { body } = rasterLayout(16);
     const dash = rectOf(unknown);
 
     expect(dash).toBeDefined();
@@ -242,7 +312,7 @@ describe('iconDisplayList — unknown', () => {
   });
 
   it('leaves the flame unlit', () => {
-    expect(flameColourOf(unknown)).toBe(TRACK);
+    expect(flameColourOf(unknown)).toBe(TRACK_SMALL);
     expect(flameColourOf(full)).toBe(FLAME);
     expect(flameColourOf(empty)).toBe(FLAME);
   });
@@ -301,17 +371,23 @@ describe('bucketing', () => {
  * can be walked end to end. What gets drawn is asserted against the display
  * list above, which is exactly why the display list is a value.
  */
-function installCanvasRecorder(): void {
-  const context = {
-    fillStyle: '',
-    save: () => {},
-    restore: () => {},
-    translate: () => {},
-    rotate: () => {},
-    fill: () => {},
-    clip: () => {},
-    fillRect: () => {},
-    getImageData: (_x: number, _y: number, width: number, height: number) => ({ width, height }),
+interface CanvasRecording {
+  sizes: number[];
+  transforms: number[][];
+  gradients: Array<{ coordinates: number[]; stops: Array<[number, string]> }>;
+  fills: string[];
+  clips: string[];
+  rects: number[][];
+}
+
+function installCanvasRecorder(): CanvasRecording {
+  const recording: CanvasRecording = {
+    sizes: [],
+    transforms: [],
+    gradients: [],
+    fills: [],
+    clips: [],
+    rects: [],
   };
 
   const globals = globalThis as { OffscreenCanvas?: unknown; Path2D?: unknown };
@@ -319,14 +395,34 @@ function installCanvasRecorder(): void {
     constructor(
       readonly width: number,
       readonly height: number,
-    ) {}
+    ) {
+      recording.sizes.push(width);
+      expect(height).toBe(width);
+    }
     getContext() {
-      return context;
+      return {
+        fillStyle: '' as string | object,
+        save: () => {},
+        restore: () => {},
+        transform: (...values: number[]) => recording.transforms.push(values),
+        createLinearGradient: (...coordinates: number[]) => {
+          const gradient = { coordinates, stops: [] as Array<[number, string]> };
+          recording.gradients.push(gradient);
+          return {
+            addColorStop: (offset: number, colour: string) => gradient.stops.push([offset, colour]),
+          };
+        },
+        fill: (path: { d?: string }) => recording.fills.push(path.d ?? ''),
+        clip: (path: { d?: string }) => recording.clips.push(path.d ?? ''),
+        fillRect: (...values: number[]) => recording.rects.push(values),
+        getImageData: (_x: number, _y: number, width: number, height: number) => ({ width, height }),
+      };
     }
   };
   globals.Path2D = class {
     constructor(readonly d?: string) {}
   };
+  return recording;
 }
 
 function removeCanvasRecorder(): void {
@@ -339,10 +435,11 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('initIcon', () => {
   let fake: FakeChrome;
+  let canvas: CanvasRecording;
 
   beforeEach(() => {
     fake = installChromeMock();
-    installCanvasRecorder();
+    canvas = installCanvasRecorder();
   });
 
   afterEach(() => {
@@ -355,6 +452,13 @@ describe('initIcon', () => {
     initIcon();
     await flush();
     fake.iconCalls.length = 0;
+    fake.titleCalls.length = 0;
+    canvas.sizes.length = 0;
+    canvas.transforms.length = 0;
+    canvas.gradients.length = 0;
+    canvas.fills.length = 0;
+    canvas.clips.length = 0;
+    canvas.rects.length = 0;
   }
 
   async function put(snapshot: unknown): Promise<void> {
@@ -367,11 +471,37 @@ describe('initIcon', () => {
     expect(fake.storageListenerCount()).toBe(1);
   });
 
+  it('sets an honest unknown title on an empty startup paint', async () => {
+    initIcon();
+    await flush();
+    expect(fake.iconCalls).toHaveLength(1);
+    expect(fake.titleCalls).toEqual([{ title: 'Wick — usage unknown' }]);
+  });
+
   it('paints on startup, so a revived worker is not left blank', async () => {
     fake.store.set(KEYS.snapshot, snapshotOf({ utilization: 30 }));
     initIcon();
     await flush();
     expect(fake.iconCalls).toHaveLength(1);
+    expect(fake.titleCalls).toEqual([{ title: 'Wick — 70% remaining, normal' }]);
+  });
+
+  it('walks production canvas APIs for dynamic 16/32/48 paint and updates its title', async () => {
+    await start();
+    await put(snapshotOf({ utilization: 82 }));
+
+    expect(canvas.sizes).toEqual([16, 32, 48]);
+    expect(canvas.gradients).toHaveLength(2);
+    expect(canvas.gradients.map((gradient) => gradient.stops)).toEqual([
+      [[0, FLAME], [1, FLAME_END]],
+      [[0, FLAME], [1, FLAME_END]],
+    ]);
+    expect(canvas.transforms).toHaveLength(3);
+    expect(canvas.fills.filter((path) => path === rasterLayout(16).ember.d)).toHaveLength(3);
+    expect(canvas.clips).toHaveLength(3);
+    expect(canvas.rects.length).toBeGreaterThan(ICON_SIZES.length);
+    expect(fake.titleCalls).toEqual([{ title: 'Wick — 18% remaining, warning' }]);
+    expect(fake.titleCalls).toHaveLength(fake.iconCalls.length);
   });
 
   it('gives Chrome an image for every size it asks for', async () => {
@@ -382,7 +512,7 @@ describe('initIcon', () => {
     expect(Object.keys(call.imageData).map(Number)).toEqual([...ICON_SIZES]);
   });
 
-  it('suppresses a redraw inside the bucket and allows one across it', async () => {
+  it('updates an exact title inside the icon bucket and redraws only across buckets', async () => {
     await start();
 
     await put(snapshotOf({ utilization: 30 })); // 70 remaining
@@ -393,6 +523,36 @@ describe('initIcon', () => {
 
     await put(snapshotOf({ utilization: 38 })); // 62 remaining — next bucket
     expect(fake.iconCalls).toHaveLength(2);
+    expect(fake.titleCalls).toEqual([
+      { title: 'Wick — 70% remaining, normal' },
+      { title: 'Wick — 68% remaining, normal' },
+      { title: 'Wick — 62% remaining, normal' },
+    ]);
+  });
+
+  it('suppresses duplicate exact titles independently of redraws', async () => {
+    await start();
+
+    const snapshot = snapshotOf({ utilization: 30 });
+    await put(snapshot);
+    await put(snapshot);
+
+    expect(fake.iconCalls).toHaveLength(1);
+    expect(fake.titleCalls).toEqual([{ title: 'Wick — 70% remaining, normal' }]);
+  });
+
+  it('keeps known, status-only, and unknown transitions truthful', async () => {
+    await start();
+
+    await put(snapshotOf({ utilization: 30 }));
+    await put(snapshotOf({ utilization: null, status: 'exceeded' }));
+    await put(snapshotOf({ utilization: null }));
+
+    expect(fake.titleCalls).toEqual([
+      { title: 'Wick — 70% remaining, normal' },
+      { title: 'Wick — remaining unknown, critical' },
+      { title: 'Wick — usage unknown' },
+    ]);
   });
 
   it('redraws on a colour change at an identical percentage', async () => {
@@ -419,12 +579,12 @@ describe('initIcon', () => {
     }
   });
 
-  it('does not throw when the canvas is unavailable', async () => {
-    // A worker can be asked to draw before the browser will hand out a canvas.
-    // The icon is not worth taking collection down for.
+  it('still updates the exact title when the canvas is unavailable', async () => {
+    // Title truth must not depend on the browser accepting an icon canvas.
     removeCanvasRecorder();
     await start();
     await expect(put(snapshotOf({ utilization: 30 }))).resolves.toBeUndefined();
     expect(fake.iconCalls).toHaveLength(0);
+    expect(fake.titleCalls).toEqual([{ title: 'Wick — 70% remaining, normal' }]);
   });
 });

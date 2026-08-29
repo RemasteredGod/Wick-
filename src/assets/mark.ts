@@ -1,154 +1,52 @@
-/**
- * The Wick mark: a candle whose fill is the gauge.
- *
- * The design archive contains no SVG. The mark is built there from two `div`s
- * — a rotated square with three rounded corners for the flame, and a rounded
- * rectangle with a bottom-anchored inner fill for the body. This module is that
- * construction measured and re-expressed as vector geometry, so that the popup,
- * the injected sidebar card, and the toolbar renderer all draw the same shape
- * from one definition rather than three approximations of it.
- *
- * Provenance and exact measurements: the design notes.
- *
- * **The fill is remaining quota, not consumption.** The archive shows Session
- * 68% and Weekly 82% used with the mark at 18% — that is `100 − max(used)`, the
- * most constrained window. Bars fill as you spend; the wick burns down. Do not
- * "fix" this asymmetry, it is the whole idea.
- */
+import identity from '../../brand/v3/geometry.json';
 
-/** Dimensions of one rendering of the mark, in CSS pixels. */
-export interface MarkGeometry {
-  /** Body width. */
-  bodyWidth: number;
-  /** Body height. */
-  bodyHeight: number;
-  /** Body corner radius. */
-  bodyRadius: number;
-  /** Side length of the flame's square, before rotation. */
-  flameSize: number;
-  /** Vertical gap between flame and body. */
-  gap: number;
-}
+/** The exact owner-approved v3 geometry, shared with the icon generator as inert JSON. */
+export const MARK_IDENTITY = identity;
 
-/**
- * The two sizes the archive draws.
- *
- * They are not proportional to each other — 5×13 and 7×26 are different aspect
- * ratios — so they are recorded as measured rather than derived from one
- * another.
- */
-export const MARK_SIZES = {
-  /** Inline, beside the wordmark. */
-  inline: { bodyWidth: 5, bodyHeight: 13, bodyRadius: 3, flameSize: 4, gap: 2 },
-  /** Hero, and the basis for the toolbar icon. */
-  hero: { bodyWidth: 7, bodyHeight: 26, bodyRadius: 4, flameSize: 5, gap: 3 },
-} as const satisfies Record<string, MarkGeometry>;
+export type MarkSize = keyof typeof identity.componentFootprints;
+export type MarkVariant = 'regular' | 'small';
 
-/** Half the diagonal of a square, as a multiple of its side. */
-const HALF_DIAGONAL = Math.SQRT2 / 2;
+/** Existing SVG layout boxes are retained so identity changes do not move popup/content UI. */
+export const MARK_SIZES = identity.componentFootprints;
 
-/**
- * The flame's rotation, in degrees.
- *
- * Straight from the archive's `transform: rotate(45deg)`. Note what this does:
- * the sharp corner is the bottom-left one (`border-radius: 50% 50% 50% 0`), and
- * rotating clockwise by 45 degrees turns it to face **left**, not up. At 4px
- * that reads as a soft blob and nobody notices. Scaled to a 48px toolbar icon
- * it will be conspicuous.
- *
- * Reproduced faithfully rather than corrected — redrawing the mark is not a
- * decision to make unilaterally. Flagged in the design notes.
- */
-export const FLAME_ROTATION_DEGREES = 45;
-
-/** The box a rendering occupies, including the flame's overflow past its own square. */
-export interface MarkViewBox {
-  minX: number;
-  minY: number;
+export interface Rect {
+  x: number;
+  y: number;
   width: number;
   height: number;
-  /** Serialised for an SVG `viewBox` attribute. */
-  toString(): string;
 }
 
-/**
- * Where everything sits, for one geometry.
- *
- * Laid out top-down: flame box, gap, body. The flame's rotation does not affect
- * layout — CSS transforms never do — so it overflows its own square by
- * `(√2 − 1)/2` of a side on every edge, and the view box has to allow for that
- * or the corners clip.
- */
-export function layout(geometry: MarkGeometry) {
-  const { bodyWidth, bodyHeight, flameSize, gap } = geometry;
+export interface BodyRect extends Rect {
+  radius: number;
+}
 
-  const overflow = flameSize * (HALF_DIAGONAL - 0.5);
-  const contentWidth = Math.max(bodyWidth, flameSize * Math.SQRT2);
-  const centreX = contentWidth / 2;
+export interface AffineTransform {
+  scaleX: number;
+  scaleY: number;
+  translateX: number;
+  translateY: number;
+}
 
-  const flameTop = overflow;
-  const flameCentreY = flameTop + flameSize / 2;
-  const bodyTop = flameTop + flameSize + gap;
-
-  const viewBox: MarkViewBox = {
-    minX: 0,
-    minY: 0,
-    width: contentWidth,
-    height: bodyTop + bodyHeight + overflow,
-    toString() {
-      return `${this.minX} ${this.minY} ${this.width} ${this.height}`;
-    },
-  };
-
-  return {
-    viewBox,
-    centreX,
-    flame: {
-      x: centreX - flameSize / 2,
-      y: flameTop,
-      size: flameSize,
-      centreX,
-      centreY: flameCentreY,
-    },
-    body: {
-      x: centreX - bodyWidth / 2,
-      y: bodyTop,
-      width: bodyWidth,
-      height: bodyHeight,
-      radius: geometry.bodyRadius,
-    },
+export interface RasterMark {
+  variant: MarkVariant;
+  body: BodyRect;
+  ember: {
+    d: string;
+    bounds: Rect;
+    transform: AffineTransform;
+    gradient: boolean;
   };
 }
 
-/**
- * Path data for the flame, unrotated.
- *
- * `border-radius: 50% 50% 50% 0` on a square, with every radius at exactly half
- * the side, collapses into something simpler than it sounds: three quarter-arcs
- * of one circle inscribed in the square, plus a square corner where the fourth
- * would be. So — a three-quarter circle, then two straight edges to the point.
- *
- * Apply `FLAME_ROTATION_DEGREES` about the flame's centre to place it.
- */
-export function flamePath(x: number, y: number, size: number): string {
-  const r = size / 2;
-  const left = x;
-  const middleY = y + r;
-  const bottom = y + size;
-  const middleX = x + r;
+/** Canonical SVG path data. It is intentionally not reconstructed or rounded. */
+export const EMBER_PATH = identity.regular.emberPath;
 
-  return [
-    `M${left} ${middleY}`,
-    // Three quarters of the inscribed circle, clockwise from the left edge over
-    // the top and round to the bottom.
-    `A${r} ${r} 0 1 1 ${middleX} ${bottom}`,
-    // The corner the radius skipped.
-    `L${left} ${bottom}`,
-    'Z',
-  ].join('');
+/** The canonical regular mark is the source for popup/content and every raster >=32px. */
+export function layout() {
+  return identity.regular;
 }
 
-/** Path data for the body: a plain rounded rectangle. */
+/** Path data for a rounded rectangle, including the v3 capsule body. */
 export function bodyPath(
   x: number,
   y: number,
@@ -171,102 +69,67 @@ export function bodyPath(
   ].join('');
 }
 
-/**
- * The filled portion of the body, for a given amount of quota remaining.
- *
- * Anchored to the bottom and clipped by the body, exactly as the archive's
- * `align-items: flex-end` inside an `overflow: hidden` box does it.
- *
- * @param remaining Percentage of quota left, 0–100. Values outside that range
- * are clamped rather than rejected: a provider reporting 103% consumed should
- * empty the gauge, not blank it.
- */
-export function fillRect(
-  body: { x: number; y: number; width: number; height: number },
-  remaining: number,
-) {
+/** Bottom-anchored remaining-quota fill, clamped defensively to the body. */
+export function fillRect(body: Rect, remaining: number): Rect {
   const fraction = Math.min(1, Math.max(0, remaining / 100));
   const height = body.height * fraction;
   return { x: body.x, y: body.y + body.height - height, width: body.width, height };
 }
 
 /**
- * Narrowest the body may be drawn, in device pixels.
- *
- * The archive's body is 7×26 — 1:3.71 — and a 16px toolbar icon scaled to fit
- * makes that 3.1 pixels wide. Three pixels of a rounded capsule is one solid
- * column between two anti-aliased ones, so the fill colour arrives at roughly a
- * third strength and the gauge stops reading as a colour at all. Four pixels
- * gives it two solid columns to sit in.
- *
- * Binding only at 16px; at 32 and 48 the faithful width is already wider.
- * See ADR 0004 (the mark at 16px).
+ * Place the exact regular or approved small optical build into a square icon.
+ * Only 16px selects the small build; Chrome's 32px and larger images use v3 regular.
  */
-export const MIN_BODY_DEVICE_PIXELS = 4;
-
-/** The mark placed into a square raster box, in device pixels. */
-export interface RasterMark {
-  /** Uniform scale from geometry units to device pixels. */
-  scale: number;
-  /** Whole-pixel body rectangle. */
-  body: { x: number; y: number; width: number; height: number; radius: number };
-  /** Flame square, unrotated. Fractional — see below. */
-  flame: { x: number; y: number; size: number; centreX: number; centreY: number };
-}
-
-/**
- * Lay the mark out to fill a square box of `boxSize` device pixels.
- *
- * Fitted by height, since the mark is far taller than it is wide, and with no
- * margin: at 16px one device pixel of body height is over eight percentage
- * points of quota, so padding is paid for in gauge resolution.
- *
- * The body's edges are snapped to whole pixels. A rounded rectangle whose left
- * edge lands on x=6.32 is drawn across two columns at partial alpha on each
- * side, which desaturates the one thing the icon exists to communicate. The
- * flame is deliberately *not* snapped: it is a rotated disc, it has no straight
- * edges to align, and forcing its centre onto the grid only moves it off the
- * body's centre line.
- */
-export function rasterLayout(geometry: MarkGeometry, boxSize: number): RasterMark {
-  const { viewBox, body, flame } = layout(geometry);
-  const scale = boxSize / viewBox.height;
-
-  const width = Math.max(MIN_BODY_DEVICE_PIXELS, Math.round(body.width * scale));
-  const height = Math.round(body.height * scale);
-  const x = Math.round((boxSize - width) / 2);
-  const y = Math.round(body.y * scale);
-
-  const flameSize = flame.size * scale;
-  const centreX = x + width / 2;
-  const centreY = flame.centreY * scale;
+export function rasterLayout(boxSize: number): RasterMark {
+  const variant: MarkVariant = boxSize < 18 ? 'small' : 'regular';
+  const source = identity[variant];
+  const scale = boxSize / source.viewBox.height;
+  const centreX = boxSize / 2;
+  const body = source.body;
+  const bodyWidth = Math.round(body.width * scale);
+  const bodyHeight = Math.round(body.height * scale);
+  const baseTransform =
+    variant === 'small'
+      ? identity.small.emberTransform
+      : { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 };
+  const emberScaleX = baseTransform.scaleX * scale;
+  const canonicalEmberCentre =
+    identity.regular.emberBounds.x + identity.regular.emberBounds.width / 2;
+  const emberWidth = source.emberBounds.width * scale;
 
   return {
-    scale,
-    // The radius is scaled from the archive's, then clamped by `bodyPath` to
-    // half the width — which is what the archive's own values do at both of its
-    // sizes, making the body a capsule rather than a rounded rectangle.
-    body: { x, y, width, height, radius: body.radius * scale },
-    flame: {
-      x: centreX - flameSize / 2,
-      y: centreY - flameSize / 2,
-      size: flameSize,
-      centreX,
-      centreY,
+    variant,
+    body: {
+      x: centreX - bodyWidth / 2,
+      y: boxSize - bodyHeight,
+      width: bodyWidth,
+      height: bodyHeight,
+      radius: Math.min(body.radius * scale, bodyWidth / 2),
+    },
+    ember: {
+      d: EMBER_PATH,
+      bounds: {
+        x: centreX - emberWidth / 2,
+        y: source.emberBounds.y * scale,
+        width: emberWidth,
+        height: source.emberBounds.height * scale,
+      },
+      transform: {
+        scaleX: emberScaleX,
+        scaleY: baseTransform.scaleY * scale,
+        translateX: centreX - canonicalEmberCentre * emberScaleX,
+        translateY: baseTransform.translateY * scale,
+      },
+      gradient: variant === 'regular',
     },
   };
 }
 
-/**
- * Quota remaining across every window, as the mark shows it.
- *
- * The gauge tracks the most constrained window, because that is the one that
- * will stop you. Returns `null` when nothing is known — the mark then renders
- * as an empty track rather than a full one, since a confident "you have plenty"
- * is the worst thing to be wrong about.
- */
+/** Quota remaining is governed by the most constrained known window. */
 export function remainingFor(utilizations: readonly (number | null)[]): number | null {
-  const known = utilizations.filter((u): u is number => u !== null);
+  const known = utilizations.filter((value): value is number =>
+    typeof value === 'number' && Number.isFinite(value),
+  );
   if (known.length === 0) return null;
-  return 100 - Math.max(...known);
+  return Math.min(100, Math.max(0, 100 - Math.max(...known)));
 }

@@ -8,21 +8,20 @@
  * into an ordered list of fill operations in device pixels — and `execute` is a
  * thin walk of that list against a canvas context. Everything worth being sure
  * about (which colour, how tall the fill, whether to redraw at all) lives in the
- * pure half, which runs in a test environment that has no `OffscreenCanvas` and
- * is not getting one.
+ * pure half. The thin canvas walk is exercised with API recorders for every
+ * runtime size; pixel rasterisation itself remains the browser's job.
  *
  * Nothing in this module may throw into the service worker. A toolbar icon is
  * not worth taking collection down for.
  */
 
 import {
-  FLAME_ROTATION_DEGREES,
-  MARK_SIZES,
+  MARK_IDENTITY,
   bodyPath,
   fillRect,
-  flamePath,
   rasterLayout,
   remainingFor,
+  type AffineTransform,
 } from '~/assets/mark';
 import { field, thresholdState } from '~/core/normalise';
 import type { LimitStatus, ThresholdState } from '~/core/types';
@@ -35,26 +34,26 @@ export const ICON_SIZES = [16, 32, 48] as const;
 export const REDRAW_BUCKET_PERCENT = 5;
 
 /**
- * Threshold colours, mirrored from `src/styles/tokens.css`.
- *
- * A service worker has no document, so `getComputedStyle` and CSS custom
- * properties are both unavailable — the values have to be literals here.
- * `tokens.css` remains the source of truth; these are copies of it. Exactly six
- * tokens are mirrored, listed below. If one changes there, change it here in
- * the same commit.
+ * Neutral brand identity values (tile, two tracks, and two ember endpoints)
+ * come from `brand/v3/geometry.json`. Four UI status values are mirrored from
+ * `src/styles/tokens.css`, because a service worker has no document and cannot
+ * read CSS custom properties. If one of those UI tokens changes there, change
+ * its literal here in the same commit.
  */
 const COLOURS = {
-  /** `--wick-track` — the unfilled body, and the unlit flame. */
-  track: '#332f2b',
-  /** `--wick-flame` — the flame, whenever there is a reading. */
-  flame: '#e8a33d',
-  /** `--wick-accent` — the fill below the warn threshold. */
+  /** `--wick-mark-tile` — the opaque icon tile. */
+  tile: MARK_IDENTITY.colours.tile,
+  /** Dedicated regular and <=18px optical-build tracks. */
+  trackRegular: MARK_IDENTITY.colours.trackRegular,
+  trackSmall: MARK_IDENTITY.colours.trackSmall,
+  /** Exact canonical ember gradient endpoints; the small build uses start solid. */
+  emberStart: MARK_IDENTITY.gradient.start,
+  emberEnd: MARK_IDENTITY.gradient.end,
+  /** Existing quota-state colours. */
   accent: '#c96442',
-  /** `--wick-warn` */
   warn: '#d99a2b',
-  /** `--wick-crit` */
   crit: '#d92b31',
-  /** `--wick-text-dim` — the "no reading" dash. */
+  /** `--wick-text-dim` — the no-reading dash. */
   dim: '#8a857d',
 } as const;
 
@@ -75,14 +74,48 @@ export interface Gauge {
 
 /* ---- Display list -------------------------------------------------------- */
 
-/** Fill a path, optionally rotated about a point. */
+/** Accessible toolbar text matching the state painted into the icon. */
+export function actionTitleFor(gauge: Gauge): string {
+  if (gauge.remaining === null) {
+    return gauge.state === 'unknown'
+      ? 'Wick — usage unknown'
+      : `Wick — remaining unknown, ${stateLabel(gauge.state)}`;
+  }
+
+  return `Wick — ${String(Math.round(gauge.remaining))}% remaining, ${stateLabel(gauge.state)}`;
+}
+
+function stateLabel(state: ThresholdState): string {
+  switch (state) {
+    case 'ok':
+      return 'normal';
+    case 'warn':
+      return 'warning';
+    case 'crit':
+      return 'critical';
+    case 'unknown':
+      return 'status unknown';
+  }
+}
+
+
+export interface LinearGradientFill {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  start: string;
+  end: string;
+}
+
+/** Fill a path, optionally transformed from canonical v3 coordinates. */
 export interface FillPathOp {
   kind: 'path';
-  /** SVG path data, in device pixels. */
+  /** Exact canonical SVG path data. */
   d: string;
   colour: string;
-  /** Rotation about a point, in degrees. Null when unrotated. */
-  rotate: { degrees: number; x: number; y: number } | null;
+  transform: AffineTransform | null;
+  gradient: LinearGradientFill | null;
 }
 
 /** Fill an axis-aligned rectangle, optionally clipped to a path. */
@@ -123,20 +156,46 @@ export type DrawOp = FillPathOp | FillRectOp;
  * with the dash in the state's colour, so the alarm survives the missing digit.
  */
 export function iconDisplayList(gauge: Gauge, size: number): DrawOp[] {
-  // One geometry at every size. The only size-specific concession is the
-  // minimum body width inside `rasterLayout` — see the decision records0004.
-  const { body, flame } = rasterLayout(MARK_SIZES.hero, size);
-  const track = bodyPath(body.x, body.y, body.width, body.height, body.radius);
+  const { variant, body, ember } = rasterLayout(size);
+  const trackPath = bodyPath(body.x, body.y, body.width, body.height, body.radius);
+  const trackColour = variant === 'small' ? COLOURS.trackSmall : COLOURS.trackRegular;
   const lit = gauge.remaining !== null;
+  const gradient =
+    lit && ember.gradient
+      ? {
+          x1: ember.bounds.x + ember.bounds.width * MARK_IDENTITY.gradient.x1,
+          y1: ember.bounds.y + ember.bounds.height * MARK_IDENTITY.gradient.y1,
+          x2: ember.bounds.x + ember.bounds.width * MARK_IDENTITY.gradient.x2,
+          y2: ember.bounds.y + ember.bounds.height * MARK_IDENTITY.gradient.y2,
+          start: COLOURS.emberStart,
+          end: COLOURS.emberEnd,
+        }
+      : null;
 
   const ops: DrawOp[] = [
     {
-      kind: 'path',
-      d: flamePath(flame.x, flame.y, flame.size),
-      colour: lit ? COLOURS.flame : COLOURS.track,
-      rotate: { degrees: FLAME_ROTATION_DEGREES, x: flame.centreX, y: flame.centreY },
+      kind: 'rect',
+      x: 0,
+      y: 0,
+      width: size,
+      height: size,
+      colour: COLOURS.tile,
+      clip: null,
     },
-    { kind: 'path', d: track, colour: COLOURS.track, rotate: null },
+    {
+      kind: 'path',
+      d: ember.d,
+      colour: lit ? COLOURS.emberStart : trackColour,
+      transform: ember.transform,
+      gradient,
+    },
+    {
+      kind: 'path',
+      d: trackPath,
+      colour: trackColour,
+      transform: null,
+      gradient: null,
+    },
   ];
 
   if (gauge.remaining === null) {
@@ -148,7 +207,7 @@ export function iconDisplayList(gauge: Gauge, size: number): DrawOp[] {
       width: body.width,
       height,
       colour: gauge.state === 'unknown' ? COLOURS.dim : fillColour(gauge.state),
-      clip: track,
+      clip: trackPath,
     });
     return ops;
   }
@@ -156,8 +215,7 @@ export function iconDisplayList(gauge: Gauge, size: number): DrawOp[] {
   const fill = fillRect(body, gauge.remaining);
   if (fill.height <= 0) return ops;
 
-  // A sliver left is not the same as none left, and at 16px one percent of the
-  // body rounds to nothing. Anything above zero gets at least one pixel.
+  // A positive remainder must survive integer rasterisation at every size.
   const height = Math.max(1, Math.round(fill.height));
   ops.push({
     kind: 'rect',
@@ -166,7 +224,7 @@ export function iconDisplayList(gauge: Gauge, size: number): DrawOp[] {
     width: body.width,
     height,
     colour: fillColour(gauge.state),
-    clip: track,
+    clip: trackPath,
   });
 
   return ops;
@@ -269,14 +327,17 @@ export function needsRedraw(previous: IconBucket | null, next: IconBucket): bool
  */
 let painted: IconBucket | null = null;
 
+/** Exact accessible title last requested from Chrome, independent of pixels. */
+let titled: string | null = null;
+
 /* ---- Drawing ------------------------------------------------------------- */
 
 /**
  * Render every size Chrome asks for.
  *
- * Impure and untested — `OffscreenCanvas` does not exist in the test
- * environment and a fake one would be a canvas polyfill by another name.
- * Everything it depends on is tested; this is the walk.
+ * The production `OffscreenCanvas`, `CanvasGradient`, transform, path, clip and
+ * rectangle calls are exercised by recorders in `tests/icon.test.ts`; Chrome
+ * remains responsible for actual pixel rasterisation.
  */
 function render(gauge: Gauge): Record<number, ImageData> {
   const images: Record<number, ImageData> = {};
@@ -290,12 +351,30 @@ function execute(ops: readonly DrawOp[], size: number): ImageData {
 
   for (const op of ops) {
     context.save();
-    context.fillStyle = op.colour;
+    if (op.kind === 'path' && op.gradient !== null) {
+      const gradient = context.createLinearGradient(
+        op.gradient.x1,
+        op.gradient.y1,
+        op.gradient.x2,
+        op.gradient.y2,
+      );
+      gradient.addColorStop(0, op.gradient.start);
+      gradient.addColorStop(1, op.gradient.end);
+      context.fillStyle = gradient;
+    } else {
+      context.fillStyle = op.colour;
+    }
+
     if (op.kind === 'path') {
-      if (op.rotate !== null) {
-        context.translate(op.rotate.x, op.rotate.y);
-        context.rotate((op.rotate.degrees * Math.PI) / 180);
-        context.translate(-op.rotate.x, -op.rotate.y);
+      if (op.transform !== null) {
+        context.transform(
+          op.transform.scaleX,
+          0,
+          0,
+          op.transform.scaleY,
+          op.transform.translateX,
+          op.transform.translateY,
+        );
       }
       context.fill(new Path2D(op.d));
     } else {
@@ -312,10 +391,42 @@ async function paint(snapshot: unknown): Promise<void> {
   try {
     const gauge = gaugeFor(snapshot);
     const next = bucketFor(gauge);
-    if (!needsRedraw(painted, next)) return;
+    const redraw = needsRedraw(painted, next);
+    const title = actionTitleFor(gauge);
+    const retitle = title !== titled;
+    if (!redraw && !retitle) return;
 
-    await chrome.action.setIcon({ imageData: render(gauge) });
-    painted = next;
+    const updates: Promise<void>[] = [];
+
+    if (redraw) {
+      try {
+        const imageData = render(gauge);
+        updates.push(
+          chrome.action.setIcon({ imageData }).then(() => {
+            painted = next;
+          }),
+        );
+      } catch {
+        // Title truth must not depend on canvas availability.
+      }
+    }
+
+    if (retitle) {
+      const previousTitle = titled;
+      // Claim before awaiting so duplicate snapshots do not queue duplicate API calls.
+      titled = title;
+      try {
+        updates.push(
+          chrome.action.setTitle({ title }).catch(() => {
+            if (titled === title) titled = previousTitle;
+          }),
+        );
+      } catch {
+        if (titled === title) titled = previousTitle;
+      }
+    }
+
+    await Promise.allSettled(updates);
   } catch {
     // Swallowed on purpose. A snapshot shaped in a way this did not expect, or
     // a canvas the browser declined to give us, must not surface as an
@@ -328,8 +439,9 @@ async function paint(snapshot: unknown): Promise<void> {
 /** Subscribe to snapshot changes and keep the toolbar icon in step. */
 export function initIcon(): void {
   // A fresh worker has no idea what is on the toolbar, so it may not suppress
-  // the first draw.
+  // the first icon or exact title update.
   painted = null;
+  titled = null;
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;

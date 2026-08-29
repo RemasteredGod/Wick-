@@ -65,6 +65,8 @@ export interface FakeChrome {
   cookies: Map<string, string>;
   /** Every `chrome.action.setIcon` call, in order. */
   iconCalls: unknown[];
+  /** Every dynamic `chrome.action.setTitle` call, in order. */
+  titleCalls: unknown[];
   /** Every `chrome.notifications.create` call, in order. */
   notifications: unknown[];
   /** Alarms created, by name. */
@@ -89,8 +91,12 @@ export interface FakeChrome {
   tabMessages: { tabId: number; message: unknown }[];
   /** Fire the alarm listener for `name`. */
   fireAlarm(name: string): void;
+  /** A sender shaped like Wick's own popup extension page. */
+  popupSender(): chrome.runtime.MessageSender;
+  /** A sender shaped like Wick's isolated main-frame provider content script. */
+  contentSender(url?: string, frameId?: number): chrome.runtime.MessageSender;
   /** Deliver a runtime message to registered listeners; resolves with the reply. */
-  sendToWorker(message: unknown): Promise<unknown>;
+  sendToWorker(message: unknown, sender?: chrome.runtime.MessageSender): Promise<unknown>;
   /** Number of registered `storage.onChanged` listeners. */
   storageListenerCount(): number;
   /** Wipe everything, keeping the same installed object. */
@@ -107,6 +113,7 @@ export function installChromeMock(): FakeChrome {
   const tabs: { url: string }[] = [];
   const cookies = new Map<string, string>();
   const iconCalls: unknown[] = [];
+  const titleCalls: unknown[] = [];
   const notifications: unknown[] = [];
   const alarms = new Map<string, chrome.alarms.AlarmCreateInfo>();
   const grantedOrigins = new Set<string>();
@@ -185,7 +192,10 @@ export function installChromeMock(): FakeChrome {
         return Promise.resolve();
       },
       setBadgeText: () => Promise.resolve(),
-      setTitle: () => Promise.resolve(),
+      setTitle(details: unknown) {
+        titleCalls.push(details);
+        return Promise.resolve();
+      },
     },
     notifications: {
       create(...args: unknown[]) {
@@ -254,6 +264,7 @@ export function installChromeMock(): FakeChrome {
     tabs,
     cookies,
     iconCalls,
+    titleCalls,
     notifications,
     alarms,
     grantedOrigins,
@@ -262,7 +273,28 @@ export function installChromeMock(): FakeChrome {
     fireAlarm(name) {
       onAlarm.emit({ name, scheduledTime: Date.now() } as chrome.alarms.Alarm);
     },
-    async sendToWorker(message) {
+    popupSender() {
+      return {
+        id: 'wick-test',
+        url: 'chrome-extension://wick-test/src/popup/index.html',
+        origin: 'chrome-extension://wick-test',
+      } as chrome.runtime.MessageSender;
+    },
+    contentSender(url = 'https://claude.ai/chats', frameId = 0) {
+      return {
+        id: 'wick-test',
+        url,
+        origin: new URL(url).origin,
+        frameId,
+        tab: { id: 1, url } as chrome.tabs.Tab,
+      } as chrome.runtime.MessageSender;
+    },
+    async sendToWorker(message, sender) {
+      const actualSender = sender ?? {
+        id: 'wick-test',
+        url: 'chrome-extension://wick-test/src/popup/index.html',
+        origin: 'chrome-extension://wick-test',
+      } as chrome.runtime.MessageSender;
       return new Promise((resolve) => {
         let replied = false;
         const reply = (response?: unknown) => {
@@ -276,7 +308,7 @@ export function installChromeMock(): FakeChrome {
         // the microtask below resolves `undefined` before the handler has
         // finished, and every async listener looks like it answered nothing.
         const held = onMessage
-          .emitCollect(message, {} as chrome.runtime.MessageSender, reply)
+          .emitCollect(message, actualSender, reply)
           .some((returned) => returned === true);
         if (held) return;
 
@@ -293,6 +325,7 @@ export function installChromeMock(): FakeChrome {
       cookies.clear();
       tabs.length = 0;
       iconCalls.length = 0;
+      titleCalls.length = 0;
       notifications.length = 0;
       alarms.clear();
       grantedOrigins.clear();

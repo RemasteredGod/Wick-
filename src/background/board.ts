@@ -30,14 +30,21 @@
  */
 
 import { localDateKey } from '~/core/normalise';
-import { isRuntimeMessage, type BoardOutcome, type RuntimeResponse } from '~/core/messages';
-import type { DailyRollup } from '~/core/types';
+import {
+  isExtensionPageSender,
+  isProviderContentSender,
+  isRuntimeMessage,
+  type BoardOutcome,
+  type RuntimeResponse,
+} from '~/core/messages';
+import type { LeaderboardDailyEntry } from '~/core/types';
 import { POLL_ALARM } from './alarms';
 import { providers } from './collector';
 import {
+  leaderboardRetentionStart,
+  normaliseAccountEmail,
   readAccountEmail,
-  readAccountId,
-  readHistory,
+  readLeaderboardLedger,
   readSettings,
   writeAccountEmail,
   writeSettings,
@@ -75,7 +82,33 @@ export const BOARD_TIMEOUT_MS = 10_000;
  */
 export const MAX_DRAIN_DAYS = 14;
 
-const DAY_MS = 86_400_000;
+/**
+ * Every board operation shares one queue. Drain requests coalesce while one is
+ * queued or running. Requesting an identity command immediately invalidates an
+ * older drain, but identity commands themselves still complete in queue order:
+ * an enrolment followed by Leave must mint the credential that Leave needs.
+ */
+let operationTail: Promise<void> = Promise.resolve();
+let operationRevision = 0;
+let activeDrain: Promise<void> | null = null;
+
+function serialise<T>(work: () => Promise<T>): Promise<T> {
+  const result = operationTail.then(work, work);
+  operationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function identityOperation<T>(work: (revision: number) => Promise<T>): Promise<T> {
+  const revision = ++operationRevision;
+  return serialise(() => work(revision));
+}
+
+function isCurrent(revision: number): boolean {
+  return revision === operationRevision;
+}
 
 /**
  * Register the listeners this module needs. Called once, synchronously.
@@ -86,7 +119,6 @@ const DAY_MS = 86_400_000;
  */
 export function initBoard(): void {
   chrome.runtime.onMessage.addListener(handleBoardMessage);
-
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== POLL_ALARM) return;
     // Not awaited, and its rejection swallowed: an error escaping an alarm
@@ -94,6 +126,10 @@ export function initBoard(): void {
     // smaller failure than a dead collector.
     void drain().catch(() => undefined);
   });
+
+  // Listener registration must finish before startup work can suspend. A poll
+  // arriving during this drain then observes `activeDrain` and shares it.
+  void drain().catch(() => undefined);
 }
 
 /* ---- Publishing ---------------------------------------------------------- */
@@ -108,31 +144,102 @@ export function initBoard(): void {
  *
  * Exported for tests, which drive it directly rather than through an alarm.
  */
-export async function drain(now = Date.now()): Promise<void> {
+export function drain(now = Date.now()): Promise<void> {
+  if (activeDrain !== null) return activeDrain;
+
+  const revision = operationRevision;
+  const running = serialise(async () => {
+    await drainCore(now, revision);
+  });
+  activeDrain = running;
+  void running
+    .finally(() => {
+      if (activeDrain === running) activeDrain = null;
+    })
+    .catch(() => undefined);
+  return running;
+}
+
+type DrainOutcome = 'complete' | 'unauthorized' | 'stale';
+
+async function drainCore(now: number, revision: number): Promise<DrainOutcome> {
   const settings = await readSettings();
   const token = settings.boardToken;
-  if (token === null) return;
+  if (token === null || !isCurrent(revision)) return isCurrent(revision) ? 'complete' : 'stale';
 
-  // Publishing stops the moment the signed-in account stops being the one this
-  // token belongs to. The board keys a profile on the account, so a day sent
-  // now would attribute one account's work to another's public page — the same
-  // mistake the snapshot merge refuses to make with `accountId`, and the reason
-  // the answer here is silence rather than a best guess.
-  //
-  // It resumes by itself: the content script reports the new account, `adopt`
-  // enrols for it, and the next tick publishes under the right profile.
-  const signedInAs = await readAccountEmail();
-  if (signedInAs !== null && settings.boardEmail !== null && signedInAs !== settings.boardEmail) {
-    return;
+  // Check only whether a settled row exists before asking live tabs. This keeps
+  // today's-only state as waiting even when identity is temporarily unknown.
+  // A null binding checks all local ledger partitions for eligibility only; no
+  // row is selected for submission until a live-normalized email is known.
+  const boundEmail =
+    settings.boardEmail === null ? null : normaliseAccountEmail(settings.boardEmail);
+  const candidates = await pendingDays(boundEmail, settings.boardSubmittedThrough, now);
+  if (!isCurrent(revision)) return 'stale';
+  if (candidates.length === 0) {
+    await writeSettings({
+      boardSyncState:
+        settings.boardSubmittedThrough === null
+          ? { kind: 'waiting-for-day-close' }
+          : { kind: 'accepted-through', day: settings.boardSubmittedThrough },
+    });
+    return 'complete';
   }
 
-  const pending = await pendingDays(settings.boardSubmittedThrough, now);
+  // An open provider tab is authoritative. With no provider tabs, the last
+  // observed account is retained so a sleeping browser can publish settled
+  // local rows; a present tab that cannot confirm it always blocks.
+  const observedEmail = await currentAccount();
+  if (!isCurrent(revision)) return 'stale';
+  if (
+    observedEmail === null ||
+    boundEmail === null ||
+    observedEmail !== boundEmail
+  ) {
+    await writeSettings({ boardSyncState: { kind: 'retry-pending' } });
+    return 'complete';
+  }
+
+  // Re-read by the freshly observed normalized email. The earlier candidates
+  // were an eligibility check only and can never choose public data.
+  const pending = await pendingDays(observedEmail, settings.boardSubmittedThrough, now);
+  if (!isCurrent(revision)) return 'stale';
+  if (pending.length === 0) {
+    await writeSettings({
+      boardSyncState:
+        settings.boardSubmittedThrough === null
+          ? { kind: 'waiting-for-day-close' }
+          : { kind: 'accepted-through', day: settings.boardSubmittedThrough },
+    });
+    return 'complete';
+  }
+
+  await writeSettings({ boardSyncState: { kind: 'syncing' } });
 
   for (const day of pending) {
-    const accepted = await submit(token, day);
-    if (!accepted) return;
-    await writeSettings({ boardSubmittedThrough: day.date });
+    if (!isCurrent(revision)) return 'stale';
+    const outcome = await submit(token, day);
+    if (!isCurrent(revision)) return 'stale';
+
+    if (outcome === 'unauthorized') {
+      // Only the operation that used this token may clear it. Leave, adoption,
+      // or a fresh enrolment requested while the request was in flight owns the
+      // credential now, even though it is still waiting in the serial queue.
+      await clearEnrollment(revision);
+      return 'unauthorized';
+    }
+
+    if (outcome !== 'accepted') {
+      await writeSettings({ boardSyncState: { kind: 'retry-pending' } });
+      return 'complete';
+    }
+
+    await writeSettings({
+      boardSubmittedThrough: day.date,
+      boardSyncState: { kind: 'accepted-through', day: day.date },
+    });
   }
+
+  return 'complete';
 }
 
 /**
@@ -143,42 +250,49 @@ export async function drain(now = Date.now()): Promise<void> {
  * accrued more messages on cannot be corrected, which is the price of a single
  * date as the bookmark and is worth it for how little it can go wrong.
  *
- * Exported for tests: which days are eligible is the part worth pinning down,
- * and it is decidable from a history array alone.
+ * Exported for tests: which days are eligible is pinned independently from
+ * transport, and a non-null email always selects only its local ledger rows.
  */
 export async function pendingDays(
+  email: string | null,
   submittedThrough: string | null,
   now: number,
-): Promise<DailyRollup[]> {
-  // The signed-in account's own record. Publishing another organisation's day
-  // under this participant's name would be wrong in both directions.
-  const history = await readHistory(await readAccountId());
+): Promise<LeaderboardDailyEntry[]> {
+  const ledger = await readLeaderboardLedger(email);
   const today = localDateKey(now);
-  const earliest = localDateKey(now - MAX_DRAIN_DAYS * DAY_MS);
+  const retainedFrom = leaderboardRetentionStart(now);
 
-  return history
+  return ledger
+    // Defend the transport against rows written before calendar retention was
+    // enforced. An age-rejected oldest row must not wedge every newer row.
+    .filter((day) => day.date >= retainedFrom)
     .filter((day) => typeof day.date === 'string')
-    .filter((day) => day.date !== today)
-    .filter((day) => day.date >= earliest)
+    .filter((day) => day.date < today)
     .filter((day) => submittedThrough === null || day.date > submittedThrough)
-    .filter((day) => Number.isFinite(day.messageCount) && day.messageCount >= 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .filter((day) => Number.isSafeInteger(day.messages) && day.messages >= 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, MAX_DRAIN_DAYS);
 }
 
 /**
  * Publish one day. `true` when the board took it.
  *
  * The body carries the date and the count, and that is the whole of it. There
- * is deliberately no window key, no utilization, no account id and no hourly
- * breakdown — the rollup holds all four and none of them is anyone else's
- * business. What is not sent cannot leak.
+ * is deliberately no email, window key, utilization, organisation id or hourly
+ * breakdown. The local ledger partition key is stripped here; what is not sent
+ * cannot leak.
  */
-async function submit(token: string, day: DailyRollup): Promise<boolean> {
+type SubmitOutcome = 'accepted' | 'unauthorized' | 'retryable';
+
+async function submit(token: string, day: LeaderboardDailyEntry): Promise<SubmitOutcome> {
   const result = await post('/api/submit', token, {
     day: day.date,
-    messages: Math.round(day.messageCount),
+    messages: day.messages,
   });
-  return result !== null;
+
+  if (result.kind === 'accepted') return 'accepted';
+  if (result.kind === 'unauthorized') return 'unauthorized';
+  return 'retryable';
 }
 
 /* ---- Joining and leaving ------------------------------------------------- */
@@ -192,12 +306,13 @@ async function submit(token: string, day: DailyRollup): Promise<boolean> {
  */
 export function handleBoardMessage(
   message: unknown,
-  _sender: chrome.runtime.MessageSender,
+  sender: chrome.runtime.MessageSender,
   sendResponse: (response: RuntimeResponse) => void,
 ): boolean {
   if (!isRuntimeMessage(message)) return false;
 
   if (message.type === 'wick:board-enroll') {
+    if (!isExtensionPageSender(sender)) return false;
     void enroll()
       .then((outcome) => sendResponse({ ok: true, outcome }))
       .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
@@ -205,6 +320,7 @@ export function handleBoardMessage(
   }
 
   if (message.type === 'wick:board-leave') {
+    if (!isExtensionPageSender(sender)) return false;
     void leave()
       .then((outcome) => sendResponse({ ok: true, outcome }))
       .catch(() => sendResponse({ ok: true, outcome: 'unavailable' }));
@@ -212,9 +328,16 @@ export function handleBoardMessage(
   }
 
   if (message.type === 'wick:account-email') {
-    // Fire and forget. The content script is reporting what it sees, not asking
-    // for anything, and holding the reply channel open for a write it does not
-    // read would be a port kept for nothing.
+    if (
+      !isProviderContentSender(
+        sender,
+        providers.flatMap((provider) => provider.matchPatterns),
+      )
+    ) {
+      return false;
+    }
+    // Serialized with enrol/leave/drain even though the reporter does not wait
+    // for a response. Null pauses publication but never destroys its token.
     void adopt(message.email).catch(() => undefined);
     return false;
   }
@@ -238,9 +361,20 @@ export function handleBoardMessage(
  * Does nothing at all when the user has not joined. Reading the address is free;
  * sending it is not, and an installation that never pressed Join never does.
  */
-export async function adopt(email: string): Promise<void> {
-  const normalised = email.trim().toLowerCase();
-  if (normalised === '') return;
+export function adopt(email: string | null): Promise<void> {
+  return identityOperation((revision) => adoptCore(email, revision));
+}
+
+async function adoptCore(email: string | null, revision: number): Promise<void> {
+  if (email === null) {
+    // Unknown is durable so a stale cache cannot publish, but the credential is
+    // retained: Leave must still be able to delete the old public profile.
+    await writeAccountEmail(null);
+    return;
+  }
+
+  const normalised = normaliseAccountEmail(email);
+  if (normalised === null) return;
 
   const previous = await readAccountEmail();
   if (previous !== normalised) await writeAccountEmail(normalised);
@@ -252,8 +386,14 @@ export async function adopt(email: string): Promise<void> {
   // Enrolled, and the account underneath has changed. Drop the old binding
   // before asking for the new one: a failed enrolment must not leave the
   // previous account's token in place to publish this account's days.
-  await writeSettings({ boardToken: null, boardName: null, boardSubmittedThrough: null });
-  await enroll();
+  await writeSettings({
+    boardToken: null,
+    boardName: null,
+    boardEmail: null,
+    boardSubmittedThrough: null,
+    boardSyncState: { kind: 'waiting-for-day-close' },
+  });
+  await enrollCore(revision);
 }
 
 /**
@@ -264,37 +404,43 @@ export async function adopt(email: string): Promise<void> {
  * to its own identity is holding the token afterwards. That is the whole
  * anonymity argument, and it rests on this request having an empty body.
  *
- * Enrolling does **not** publish anything. The first submission happens on the
- * next poll alarm, for yesterday, which gives a user who joined by accident a
- * window in which leaving costs nothing.
+ * Enrolling immediately offers any already completed rows. Today's row remains
+ * local until the date changes, exactly as it does on every later drain.
  */
-async function enroll(): Promise<BoardOutcome> {
+function enroll(): Promise<BoardOutcome> {
+  return identityOperation(enrollCore);
+}
+
+async function enrollCore(revision: number): Promise<BoardOutcome> {
   const { boardToken } = await readSettings();
   // Already joined, for the account currently signed in. `adopt` clears the
   // binding first when the account changes, so reaching here with a token means
   // there is nothing to do.
   if (boardToken !== null) return 'ok';
 
-  // The account is the profile's primary key, so there is nothing to enrol
-  // without it — and `no-account` rather than `unavailable`, because nothing is
-  // down and the user has a step to take.
   const email = await currentAccount();
   if (email === null) return 'no-account';
 
-  const body = await post('/api/enroll', null, { email });
-  if (body === null) return 'unavailable';
+  const result = await post('/api/enroll', null, { email });
+  if (result.kind !== 'accepted') return 'unavailable';
 
-  const token = stringField(body, 'token');
-  const name = stringField(body, 'name');
+  const token = stringField(result.body, 'token');
+  const name = stringField(result.body, 'name');
   if (token === null || name === null) return 'unavailable';
 
+  // Identity commands are ordered, not cancelled. A Leave requested while this
+  // request was in flight needs the accepted token in order to delete the
+  // server profile. The revision applies only to the opportunistic drain below.
   await writeSettings({
     boardToken: token,
     boardName: name,
     boardEmail: email,
     boardSubmittedThrough: null,
+    boardSyncState: { kind: 'waiting-for-day-close' },
   });
-  return 'ok';
+
+  const drained = await drainCore(Date.now(), revision);
+  return drained === 'unauthorized' ? 'unavailable' : 'ok';
 }
 
 /**
@@ -308,44 +454,75 @@ async function enroll(): Promise<BoardOutcome> {
  * A board that cannot be reached is reported as such and **nothing local is
  * cleared**, so pressing Leave again later still works.
  */
-async function leave(): Promise<BoardOutcome> {
+function leave(): Promise<BoardOutcome> {
+  return identityOperation(leaveCore);
+}
+
+async function leaveCore(_revision: number): Promise<BoardOutcome> {
   const { boardToken } = await readSettings();
   if (boardToken === null) return 'ok';
 
-  const body = await post('/api/leave', boardToken, {});
-  if (body === null) return 'unavailable';
+  const result = await post('/api/leave', boardToken, {});
+  if (result.kind !== 'accepted') return 'unavailable';
 
-  await writeSettings({
-    boardToken: null,
-    boardName: null,
-    boardEmail: null,
-    boardSubmittedThrough: null,
-  });
+  await clearEnrollment();
   return 'ok';
 }
+
+async function clearEnrollment(revision?: number): Promise<void> {
+  // Drains are speculative background work and may only clear the binding they
+  // started with. Serialized identity commands omit the revision because their
+  // accepted transitions must complete before the next queued command starts.
+  if (revision === undefined) {
+    await writeSettings(CLEARED_ENROLLMENT);
+    return;
+  }
+
+  if (!isCurrent(revision)) return;
+  const captured = await readSettings();
+  if (!isCurrent(revision)) return;
+
+  await writeSettings(CLEARED_ENROLLMENT);
+  if (isCurrent(revision)) return;
+
+  // An identity intent may arrive while chrome.storage.local.set is suspended.
+  // It cannot run until this serialized drain returns, so restore the binding
+  // it needs before yielding the queue. The stale submit remains pending rather
+  // than pretending the cleared write won the race.
+  await writeSettings({
+    boardToken: captured.boardToken,
+    boardName: captured.boardName,
+    boardEmail: captured.boardEmail,
+    boardSubmittedThrough: captured.boardSubmittedThrough,
+    boardSyncState: { kind: 'retry-pending' },
+  });
+}
+
+const CLEARED_ENROLLMENT = {
+  boardToken: null,
+  boardName: null,
+  boardEmail: null,
+  boardSubmittedThrough: null,
+  boardSyncState: { kind: 'waiting-for-day-close' },
+} as const;
 
 /**
  * Which Claude account is signed in.
  *
- * The stored answer when there is one, and otherwise **asked of an open
- * claude.ai tab there and then**. The second half matters more than it looks:
- * Join is pressed in the popup, the account is only readable from the page, and
- * the content script reports on a five-second poll — so a user who installs
- * Wick and opens the popup promptly would otherwise be told the leaderboard was
- * unreachable when the only problem was that nobody had looked yet.
+ * Open claude.ai tabs are asked every time identity authorises a board action.
+ * Their live answer is authoritative over storage: if present tabs cannot agree
+ * on one non-null account, publication and enrolment stop. Only when no provider
+ * tab is open may the last content-script observation be used. This permits a
+ * sleeping browser to drain settled local rows without allowing a stale cache
+ * to override a page that is signed out or showing another account.
  *
- * Asking costs one message to one tab, and only when the answer is not already
- * known. `chrome.tabs.query` with a URL filter needs no `tabs` permission of its
- * own — it reads URLs only for hosts Wick already has permission for, the same
- * way the poll cadence decides whether anyone is watching.
- *
- * The patterns come from the providers rather than being written here: no
- * claude.ai URL may appear outside `src/providers/`.
+ * `chrome.tabs.query` with a URL filter needs no `tabs` permission of its own —
+ * it reads URLs only for hosts Wick already has permission for. The patterns
+ * come from providers rather than being written here: no claude.ai URL may
+ * appear outside `src/providers/`.
  */
 async function currentAccount(): Promise<string | null> {
   const stored = await readAccountEmail();
-  if (stored !== null) return stored;
-
   const patterns = providers.flatMap((provider) => provider.matchPatterns);
   if (patterns.length === 0) return null;
 
@@ -353,55 +530,88 @@ async function currentAccount(): Promise<string | null> {
   try {
     tabs = await chrome.tabs.query({ url: patterns });
   } catch {
-    // A browser shutting down. Not knowing is a handled state.
+    // Query failure cannot prove there are no provider tabs, so it fails closed.
     return null;
   }
 
-  for (const tab of tabs) {
-    if (tab.id === undefined) continue;
+  // With no live provider page there is nothing newer to consult. Keeping the
+  // last content-script observation lets settled rows drain after tabs close.
+  if (tabs.length === 0) return stored;
 
-    // Inside the loop, deliberately. `sendMessage` **rejects** for a tab with no
-    // listener — a page whose content script has not run yet, or one loaded
-    // before the extension was updated — and catching outside would let the
-    // first such tab abandon the search while a perfectly good tab sat behind
-    // it.
+  let observed: string | null = null;
+  for (const tab of tabs) {
+    // Every tab returned by the provider-host query is evidence that a live
+    // account may differ from the cache. If it cannot be queried, no other tab
+    // may stand in for it.
+    if (tab.id === undefined) return null;
+
+    let reply: RuntimeResponse | undefined;
     try {
-      const reply = (await chrome.tabs.sendMessage(tab.id, {
+      reply = (await chrome.tabs.sendMessage(tab.id, {
         type: 'wick:read-account',
       })) as RuntimeResponse | undefined;
-
-      if (reply === undefined || !reply.ok || !('email' in reply)) continue;
-      if (reply.email === null) continue;
-
-      // Remember it, so the next caller does not have to ask again and so a
-      // later account switch has something to compare against.
-      await writeAccountEmail(reply.email);
-      return reply.email;
     } catch {
-      // This tab cannot answer. The next one might.
-      continue;
+      return null;
     }
+
+    if (
+      reply === undefined ||
+      !reply.ok ||
+      !('email' in reply) ||
+      (typeof reply.email !== 'string' && reply.email !== null)
+    ) {
+      return null;
+    }
+
+    if (reply.email === null) {
+      await writeAccountEmail(null);
+      return null;
+    }
+
+    const normalised = normaliseAccountEmail(reply.email);
+    if (normalised === null) {
+      await writeAccountEmail(null);
+      return null;
+    }
+    if (observed !== null && observed !== normalised) {
+      await writeAccountEmail(null);
+      return null;
+    }
+    observed = normalised;
   }
 
-  return null;
+  if (observed === null) return null;
+  if (stored !== observed) await writeAccountEmail(observed);
+  return observed;
 }
 
 /* ---- Transport ----------------------------------------------------------- */
 
+/** A transport result safe to act on and persist without retaining server detail. */
+type TransportOutcome =
+  | { kind: 'accepted'; body: unknown }
+  | { kind: 'unauthorized' }
+  | { kind: 'retryable' }
+  | { kind: 'rejected' };
+
 /**
- * POST JSON to the board. Returns the parsed body, or `null` for any failure.
+ * POST JSON to the board without throwing.
  *
- * Never throws, and never distinguishes one failure from another to its caller.
- * There is exactly one thing a caller can do about a refused board call —
- * nothing, and try again on the next alarm — so a taxonomy of reasons would be
- * detail nobody acts on.
+ * Callers need to distinguish a dead bearer token from a temporary outage, but
+ * no response body, status text, or server detail is persisted. Other 4xx
+ * responses are refused rather than guessed retryable; publication still stops
+ * before advancing its high-water mark.
  *
  * **No credentials mode.** `omit`, explicitly: the board sets no cookies and
  * wants none, and a request that carried ambient credentials would be a request
  * that could be made on the user's behalf by something else.
  */
-async function post(path: string, token: string | null, body: unknown): Promise<unknown | null> {
-  if (!(await permitted())) return null;
+async function post(
+  path: string,
+  token: string | null,
+  body: unknown,
+): Promise<TransportOutcome> {
+  if (!(await permitted())) return { kind: 'retryable' };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BOARD_TIMEOUT_MS);
@@ -418,11 +628,22 @@ async function post(path: string, token: string | null, body: unknown): Promise<
       signal: controller.signal,
     });
 
-    if (!response.ok) return null;
-    return (await response.json()) as unknown;
+    if (response.ok) {
+      return { kind: 'accepted', body: (await response.json()) as unknown };
+    }
+    if (response.status === 401) return { kind: 'unauthorized' };
+    if (
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status === 429 ||
+      response.status >= 500
+    ) {
+      return { kind: 'retryable' };
+    }
+    return { kind: 'rejected' };
   } catch {
-    // Offline, aborted, refused, or answering something that is not JSON.
-    return null;
+    // Offline, aborted, refused, or an accepted response that was not JSON.
+    return { kind: 'retryable' };
   } finally {
     clearTimeout(timer);
   }

@@ -1,32 +1,39 @@
--- Drop the previous tables, then rebuild.
+-- Local-development reset only.
 --
--- `supabase/schema.sql` uses `create table if not exists`, which is right for a
--- fresh project and silently does nothing to an existing one. Any deployment
--- that ran an earlier schema has tables with different columns, so re-running
--- the new schema leaves them untouched and every request then fails against
--- columns that are not there:
+-- This file is not a migration and must never be run against production or a
+-- database whose rows matter. Production upgrades use the ordered files in
+-- supabase/migrations/ after supabase/preflight.sql, a restorable backup, a
+-- staging rehearsal, and explicit owner confirmation.
 --
---   /board, /u/<name>   PostgREST 400 on `select=email,name`  -> 503
---   /api/enroll         400 inserting `email`                 -> 503
---   /api/submit         400 inserting `email`                 -> 503
+-- It fails closed. A local operator must deliberately run this in the same
+-- session first:
 --
--- This drops them instead. **It destroys every row**, which is the right trade
--- only while the board is empty or seeded — check `/board` first. A deployment
--- with real participants needs an `alter table` migration written against what
--- it actually holds, not this.
+--   set wick.allow_destructive_reset = 'local-development-only';
 --
--- Run this, then supabase/schema.sql, then optionally supabase/seed.sql.
+-- The setting is not permission to use this against production. It only makes
+-- accidental execution (including pasting the file into the SQL editor) stop
+-- before the first DROP.
 
--- Current tables. `tokens` and `daily_rows` cascade from `profiles`, but they
--- are named explicitly so this works on a database somebody rebuilt by hand
--- without the foreign keys.
-drop table if exists daily_rows cascade;
-drop table if exists tokens cascade;
-drop table if exists profiles cascade;
+do $guard$
+begin
+  if current_setting('wick.allow_destructive_reset', true)
+       is distinct from 'local-development-only' then
+    raise exception using
+      message = 'destructive reset disabled',
+      hint = 'Use ordered migrations. Only a disposable local database may set wick.allow_destructive_reset.';
+  end if;
+end
+$guard$;
 
--- Gone with the Telegram bot: connections mapped bot tokens to chats, codes
--- held the ten-minute connect codes, rename_codes held proof of a payment.
--- Nothing reads any of them.
-drop table if exists connections cascade;
-drop table if exists codes cascade;
-drop table if exists rename_codes cascade;
+-- Child tables are named explicitly so a malformed local schema can still be
+-- cleared. CASCADE is appropriate only because the guard above limits this file
+-- to a disposable database.
+drop table if exists public.daily_rows cascade;
+drop table if exists public.tokens cascade;
+drop table if exists public.profiles cascade;
+drop table if exists public.wick_schema_migrations cascade;
+
+-- Obsolete pre-leaderboard development tables.
+drop table if exists public.connections cascade;
+drop table if exists public.codes cascade;
+drop table if exists public.rename_codes cascade;

@@ -80,6 +80,10 @@ export interface BoardStore {
    * point of keying profiles on the email. A caller must never end up with two
    * profiles for one account, so this cannot be implemented as a blind insert.
    *
+   * Profile creation (or lookup) and token binding are one atomic operation.
+   * A token failure must not retain a new profile or its email, and concurrent
+   * first enrolments for one email must converge on that account's single row.
+   *
    * `assign` proposes names — `assignName` from leaderboard/names.ts with the
    * randomness bound — and the implementation retries on a collision. It is
    * only consulted when the account has no profile yet.
@@ -128,6 +132,11 @@ export interface BoardStore {
    * says the profile is gone, and a version that only unbound the browser it
    * was pressed in would leave the public page up and another browser still
    * publishing to it.
+   *
+   * The profile, rows, and tokens must disappear atomically. A storage adapter
+   * may rely on verified cascading foreign keys, but it must not expose a
+   * sequence of independently committable deletes that can stop halfway.
+   * Unknown and already-forgotten tokens are successful no-ops.
    *
    * There is no soft-delete and no tombstone. The name returns to the pool and
    * nothing is kept to prove the account was ever there.

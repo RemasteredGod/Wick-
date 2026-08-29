@@ -1,49 +1,73 @@
-/**
- * Not a test — a way to look at the icon.
- *
- * `iconDisplayList` is pure, so the same list that Chrome rasterises can be
- * written out as SVG and opened. That is how deviation 2 was settled in
- * ADR 0004 (the mark at 16px): by looking at the mark at 16px rather
- * than by arguing about it.
- *
- * It lives under `tests/` because that is where the module resolver and the
- * `~` alias already work, and it is skipped unless asked for — a suite that
- * writes files into the working directory on every run is a suite that leaves
- * a mess in someone's `git status`.
- *
- *     WICK_ICON_OUT=. pnpm test
- */
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ICON_SIZES, readPngHeader } from './helpers/icon-png';
 
-import { writeFileSync } from 'node:fs';
-import { describe, it } from 'vitest';
-import { ICON_SIZES, iconDisplayList, type DrawOp } from '~/background/icon';
+const generator = await import(new URL('../scripts/generate-icons.mjs', import.meta.url).href) as {
+  generateIcons(output?: string): Array<{ size: number; path: string; bytes: Buffer }>;
+  rasterUnknown(size: number): Buffer;
+};
 
-const OUT = process.env.WICK_ICON_OUT;
+const temporaryDirectories: string[] = [];
 
-function toSvg(ops: DrawOp[], size: number): string {
-  const defs: string[] = [];
-  const body: string[] = [];
-  ops.forEach((op, i) => {
-    if (op.kind === 'path') {
-      const t = op.rotate ? ` transform="rotate(${op.rotate.degrees} ${op.rotate.x} ${op.rotate.y})"` : '';
-      body.push(`<path d="${op.d}" fill="${op.colour}"${t}/>`);
-    } else {
-      let clip = '';
-      if (op.clip) {
-        defs.push(`<clipPath id="c${i}"><path d="${op.clip}"/></clipPath>`);
-        clip = ` clip-path="url(#c${i})"`;
-      }
-      body.push(`<rect x="${op.x}" y="${op.y}" width="${op.width}" height="${op.height}" fill="${op.colour}"${clip}/>`);
-    }
-  });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><defs>${defs.join('')}</defs>${body.join('')}</svg>`;
+async function temporaryDirectory(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), 'wick-icons-'));
+  temporaryDirectories.push(path);
+  return path;
 }
 
-describe.skipIf(OUT === undefined)('icon generation', () => {
-  it('emits svg for each size', () => {
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
+});
+
+describe('deterministic icon generation', () => {
+  it('writes byte-identical UNKNOWN-state icons with reviewed dimensions', async () => {
+    const first = await temporaryDirectory();
+    const second = await temporaryDirectory();
+    generator.generateIcons(first);
+    generator.generateIcons(second);
+
     for (const size of ICON_SIZES) {
-      const svg = toSvg(iconDisplayList({ remaining: null, state: 'unknown' }, size), size);
-      writeFileSync(`${OUT ?? '.'}/wick-${size}.svg`, svg, 'utf8');
+      const firstPath = join(first, `${size}.png`);
+      const secondPath = join(second, `${size}.png`);
+      expect(await readFile(secondPath)).toEqual(await readFile(firstPath));
+      expect(readPngHeader(firstPath)).toEqual({
+        width: size,
+        height: size,
+        bitDepth: 8,
+        colourType: 6,
+      });
     }
+  });
+
+  it('makes every tile pixel opaque rather than leaking page-dependent colour', () => {
+    for (const size of ICON_SIZES) {
+      const rgba = generator.rasterUnknown(size);
+      for (let offset = 3; offset < rgba.length; offset += 4) expect(rgba[offset]).toBe(255);
+    }
+  });
+
+  it('keeps the approved 128px manifest/notification capsule edge-to-edge', () => {
+    const size = 128;
+    const rgba = generator.rasterUnknown(size);
+    const tile = [0x14, 0x13, 0x12];
+    const bottomRowHasMark = Array.from({ length: size }, (_, x) => {
+      const offset = ((size - 1) * size + x) * 4;
+      return tile.some((channel, index) => rgba[offset + index] !== channel);
+    }).some(Boolean);
+
+    expect(bottomRowHasMark).toBe(true);
+  });
+
+  it('does not encode the owner specimen percentages into generated state', async () => {
+    const source = await readFile(
+      new URL('../scripts/generate-icons.mjs', import.meta.url),
+      'utf8',
+    );
+    expect(source).toContain('rasterUnknown');
+    expect(source).not.toMatch(/remaining\s*[:=]\s*(?:26|30)\b/u);
   });
 });

@@ -1,6 +1,13 @@
 # Plan — relay origin, Claude Code leaderboard, Telegram surface
 
-Status: **proposed, not started.** No source file has been changed for it.
+> **Historical document — do not implement.** This proposal describes a
+> superseded token-counting and Telegram design and does not represent Wick's
+> current scope, architecture, privacy model, or release status. Current work is
+> documented in [`README.md`](README.md) and [`AGENTS.md`](AGENTS.md). It is
+> retained only as design history.
+
+Status: **historical and superseded.** The text below is unchanged archival
+context, not an active plan.
 
 One thing has moved since this plan was first written: **ADR 0003 was amended on
 2026-08-25** to accept the hosting platform's own request log, including IP

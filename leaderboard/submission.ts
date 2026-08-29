@@ -21,7 +21,7 @@
  * Pure. Takes `unknown` because it runs on a request body.
  */
 
-import { isDay, type Day } from './periods.js';
+import { daysBetween, isDay, type Day } from './periods.js';
 
 /** What one accepted submission becomes: one day, one count. */
 export interface DailyRow {
@@ -48,19 +48,34 @@ export type SubmissionResult =
 export const MAX_MESSAGES = 10_000;
 
 /**
- * Read a submission body.
+ * Server-side calendar bounds for the client's retained local dates.
+ *
+ * The client keeps 90 local dates: its current date and the preceding 89. Its
+ * local date can be one day behind the server's UTC date, so the oldest valid
+ * retained date can be 90 UTC calendar days old. The same date-line skew can
+ * put a legitimate local date one day ahead; anything farther away is not a
+ * current retained observation.
+ */
+export const MAX_SUBMISSION_AGE_DAYS = 90;
+export const MAX_SUBMISSION_FUTURE_DAYS = 1;
+
+/**
+ * Read a submission body as of the server's UTC calendar day.
  *
  * Two fields, both required. There is deliberately nothing optional here: a
- * body carrying anything else is a body written against a different version,
- * and taking the half of it that parses would publish a day nobody meant to
- * send.
+ * body carrying anything else is narrowed to this exact row, so no private
+ * rollup field can survive into storage.
  */
-export function readSubmission(value: unknown): SubmissionResult {
+export function readSubmission(value: unknown, today: Day): SubmissionResult {
   if (typeof value !== 'object' || value === null) return { ok: false, rejection: 'malformed' };
 
   const body = value as { day?: unknown; messages?: unknown };
 
-  if (!isDay(body.day)) return { ok: false, rejection: 'bad-day' };
+  if (!isDay(body.day) || !isDay(today)) return { ok: false, rejection: 'bad-day' };
+  const age = daysBetween(body.day, today);
+  if (age > MAX_SUBMISSION_AGE_DAYS || age < -MAX_SUBMISSION_FUTURE_DAYS) {
+    return { ok: false, rejection: 'bad-day' };
+  }
   if (!isCount(body.messages)) return { ok: false, rejection: 'bad-messages' };
   if (body.messages > MAX_MESSAGES) return { ok: false, rejection: 'implausible' };
 

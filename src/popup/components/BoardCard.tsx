@@ -1,3 +1,5 @@
+import type { BoardSyncState } from '~/core/types';
+
 interface BoardCardProps {
   /** Whether this installation has enrolled and holds a participant token. */
   enrolled: boolean;
@@ -5,6 +7,8 @@ interface BoardCardProps {
   name: string | null;
   /** Messages counted today, or null when nothing has been recorded yet. */
   today: number | null;
+  /** Local publication progress written by the worker. */
+  syncState: BoardSyncState;
 }
 
 /**
@@ -25,7 +29,7 @@ interface BoardCardProps {
  * Display only. The Join and Leave controls live on the settings screen, where
  * the permission prompt can be raised from a real click.
  */
-export function BoardCard({ enrolled, name, today }: BoardCardProps) {
+export function BoardCard({ enrolled, name, today, syncState }: BoardCardProps) {
   return (
     <div class="wick-board">
       <div class="wick-board__head">
@@ -38,9 +42,50 @@ export function BoardCard({ enrolled, name, today }: BoardCardProps) {
 
       <div class="wick-board__note">
         {enrolled
-          ? `Publishing your daily message count${today === null ? '' : ` — ${today} today`}.`
+          ? formatBoardSyncCopy(syncState, today)
           : 'Optional. Wick tracks fine without it.'}
       </div>
     </div>
   );
 }
+
+export function formatBoardSyncCopy(state: BoardSyncState, today: number | null): string {
+  switch (state.kind) {
+    case 'waiting-for-day-close': {
+      const waiting = 'Waiting for today to close before publishing.';
+      return today === null ? waiting : `${today} messages today. ${waiting}`;
+    }
+    case 'syncing':
+      return 'Syncing completed days.';
+    case 'retry-pending':
+      return 'Completed days are waiting to sync. Wick will retry.';
+    case 'accepted-through':
+      return `Accepted through ${displayDay(state.day)}. Today's count waits until the day closes.`;
+  }
+}
+
+/** Format a stored local date without routing it through a UTC conversion. */
+function displayDay(day: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (match === null) return day;
+
+  const month = Number(match[2]);
+  const monthName = MONTHS[month - 1];
+  if (monthName === undefined) return day;
+  return `${Number(match[3])} ${monthName} ${match[1]}`;
+}
+
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
