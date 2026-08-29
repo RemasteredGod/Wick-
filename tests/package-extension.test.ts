@@ -123,7 +123,8 @@ describe('package CI configuration', () => {
     expect(workflow).toMatch(/permissions:\n  contents: read/u);
     expect(workflow).not.toMatch(/(?:contents|packages|actions|id-token): write/u);
     expect(workflow).toContain('persist-credentials: false');
-    expect(workflow).toContain("node-version: '20'");
+    expect(workflow).toContain("node-version: '24'");
+    expect(workflow).toContain('corepack install --global pnpm@10.33.4');
     expect(workflow).toContain('package-manager-cache: false');
     expect(workflow).toContain('pnpm install --frozen-lockfile');
     expect(workflow).toContain('pnpm exec tsc --project tsconfig.vercel.json --noEmit');

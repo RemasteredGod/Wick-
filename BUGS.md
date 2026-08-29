@@ -146,3 +146,42 @@ Severity values: `critical`, `high`, `medium`, `low`.
 - Close with: staging transaction, conflict, PostgREST, effective privilege, and
   concurrent first-enrollment observations.
 - GitHub issue: https://github.com/RemasteredGod/Wick-/issues/15
+
+
+## WICK-009 — Popup can show stale not-joined state after rejoining
+
+- Severity: medium
+- Status: verified
+- Affected: pre-release `leaderboard-foundations` build before this fix
+- Evidence: popup storage changes started unversioned asynchronous full-state
+  reads. A read triggered by Leave could finish after the newer Join read and
+  overwrite its fresh token/name state, leaving the interface stale until an
+  unrelated storage event. The worker and backend had already completed the
+  fresh enrollment successfully.
+- Required fix: make popup state reloads latest-request-wins while preserving the
+  ordered Leave, enrollment, and completed-day publication operations.
+- Close with: an out-of-order popup-read regression and a sequential worker
+  regression proving the old token is used only for Leave and the fresh token is
+  stored and used for republication.
+- GitHub issue: https://github.com/RemasteredGod/Wick-/issues/16
+
+
+## WICK-010 — Vercel preview function build misses TypeScript libraries
+
+- Severity: high
+- Status: blocked (repository fix verified; hosted preview redeploy pending)
+- Affected: Vercel previews built from the pre-fix `leaderboard-foundations`
+  candidate
+- Evidence: native `/api` functions use a separate dependency install that
+  cannot be customized by `vercel.json`. With `NODE_ENV=production`, that pnpm
+  install can omit devDependencies before Vercel transpiles the functions using
+  the root TypeScript config, producing TS2688 for `chrome`, `node`, and
+  `vite/client`. The deployment also warned about an open-ended Node engine and
+  a pnpm 11 package-manager request against Vercel's pnpm 10 lockfile handling.
+- Required fix: force devDependencies on every repository pnpm install path,
+  retain strict ambient type checks, use a frozen explicit Vercel install, and
+  pin supported Node/pnpm versions consistently.
+- Close with: clean `NODE_ENV=production` frozen install plus both typechecks,
+  full tests/build verification, and a successful uncached Vercel preview build
+  of the exact candidate commit with no TS2688 or toolchain-version warnings.
+- GitHub issue: https://github.com/RemasteredGod/Wick-/issues/17

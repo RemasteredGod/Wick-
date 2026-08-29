@@ -6,12 +6,12 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
-  "packageManager": "pnpm@11.23.0",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm icons:generate && tsc --noEmit && vite build",
+    "build": "node scripts/generate-icons.mjs && tsc --noEmit && vite build",
     "icons:generate": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

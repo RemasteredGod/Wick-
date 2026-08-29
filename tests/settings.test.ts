@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { KEYS, readSettings } from '~/background/store';
 import { DEFAULT_SETTINGS, type BoardSyncState } from '~/core/types';
+import { createLatestLoadGate } from '~/popup/useWickState';
 import { formatBoardSyncCopy } from '~/popup/components/BoardCard';
 import { installChromeMock, uninstallChromeMock, type FakeChrome } from './helpers/chrome-mock';
 
@@ -53,6 +54,36 @@ describe('website-only sponsorship', () => {
       expect(surface.toLowerCase()).not.toContain('ko-fi');
       expect(surface).not.toContain('Sponsor this project');
     }
+  });
+});
+
+describe('popup storage refresh ordering', () => {
+  it('does not let a delayed Leave read overwrite a newer Join read', async () => {
+    const gate = createLatestLoadGate();
+    const committed: string[] = [];
+    let finishLeave: ((value: string) => void) | undefined;
+    let finishJoin: ((value: string) => void) | undefined;
+    const leaveRead = new Promise<string>((resolve) => {
+      finishLeave = resolve;
+    });
+    const joinRead = new Promise<string>((resolve) => {
+      finishJoin = resolve;
+    });
+
+    const apply = async (read: Promise<string>) => {
+      const request = gate.begin();
+      const value = await read;
+      if (gate.accepts(request)) committed.push(value);
+    };
+
+    const leaving = apply(leaveRead);
+    const joining = apply(joinRead);
+    finishJoin?.('joined-with-fresh-token');
+    await joining;
+    finishLeave?.('not-joined');
+    await leaving;
+
+    expect(committed).toEqual(['joined-with-fresh-token']);
   });
 });
 

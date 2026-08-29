@@ -74,7 +74,7 @@ roadmap beyond v1. They are not being built now.
 
 ## Install from source
 
-Requires Node 20+ and pnpm.
+Requires Node 24 and the pnpm version pinned in `package.json`.
 
 ```sh
 pnpm install

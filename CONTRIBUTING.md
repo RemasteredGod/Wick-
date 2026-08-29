@@ -69,7 +69,7 @@ boundary. When live traffic is re-verified, update its date stamp and evidence.
 
 ## Validation
 
-Use Node 20 or newer and the pnpm version pinned in `package.json`. Start from a
+Use Node 24 and the pnpm version pinned in `package.json`. Start from a
 clean install:
 
 ```sh

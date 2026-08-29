@@ -640,6 +640,52 @@ describe('leaving', () => {
     });
     expect((fake.store.get(KEYS.settings) as Settings).boardToken).toBe('tok');
   });
+
+  it('joins again after leaving and republishes completed days with the new token', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === `${BOARD_ORIGIN}/api/leave`) {
+        return new Response(JSON.stringify({ left: true }), { status: 200 });
+      }
+      if (url === `${BOARD_ORIGIN}/api/enroll`) {
+        return new Response(
+          JSON.stringify({ token: 'fresh-token', name: 'quiet-harbour-7781' }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    joined({ boardSubmittedThrough: '2026-08-24' });
+    ledger(rollup('2026-08-24', 30));
+
+    expect(await fake.sendToWorker({ type: 'wick:board-leave' })).toEqual({
+      ok: true,
+      outcome: 'ok',
+    });
+    expect((fake.store.get(KEYS.settings) as Settings).boardToken).toBeNull();
+
+    expect(await fake.sendToWorker({ type: 'wick:board-enroll' })).toEqual({
+      ok: true,
+      outcome: 'ok',
+    });
+
+    const stored = fake.store.get(KEYS.settings) as Settings;
+    expect(stored.boardToken).toBe('fresh-token');
+    expect(stored.boardName).toBe('quiet-harbour-7781');
+    expect(stored.boardEmail).toBe(ASH);
+    expect(stored.boardSubmittedThrough).toBe('2026-08-24');
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${BOARD_ORIGIN}/api/leave`,
+      `${BOARD_ORIGIN}/api/enroll`,
+      `${BOARD_ORIGIN}/api/submit`,
+    ]);
+    expect(initOf(fetchMock as FetchMock, 0).headers).toMatchObject({
+      authorization: 'Bearer tok',
+    });
+    expect(initOf(fetchMock as FetchMock, 2).headers).toMatchObject({
+      authorization: 'Bearer fresh-token',
+    });
+  });
 });
 
 /* ---- Robustness ---------------------------------------------------------- */

@@ -27,6 +27,10 @@ All notable changes to Wick are documented here. This project follows
   account sidebar; submissions still contain only a date and message count.
 - Leaderboard access is an optional host permission requested only when the user
   chooses to join.
+- Popup state reloads are latest-request-wins, so a delayed Leave read cannot
+  overwrite a successful Join-again state.
+- Vercel preview installs retain required TypeScript declarations under
+  `NODE_ENV=production` and use pinned Node 24 and pnpm 10 tooling.
 - Release status now distinguishes repository implementation from hosted,
   protocol, browser, and store-review gates.
 
