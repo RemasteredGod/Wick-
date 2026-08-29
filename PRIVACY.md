@@ -84,8 +84,11 @@ The server stores, per account:
 
 It does not store a submission timestamp, an IP address, an organisation id, or
 anything finer than a calendar day. Re-submitting the same day replaces the row
-rather than adding to it, and two browsers on one account converge on a single
-row rather than double-counting.
+rather than adding to it. **Exact account-wide totals across multiple browsers
+are not yet guaranteed.** Each browser submits the count it observed locally,
+so one browser's later submission may replace another browser's same-day total
+rather than combine both counts. The board does not track activity across
+browsers to reconstruct that total.
 
 ### Switching accounts
 

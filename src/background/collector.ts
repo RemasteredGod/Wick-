@@ -12,16 +12,20 @@
  * Failure is written to the store as a status the interface can show.
  */
 
-import { isRuntimeMessage, type RuntimeMessage, type RuntimeResponse } from '~/core/messages';
-import type { LimitWindow, Snapshot, SnapshotSource } from '~/core/types';
+import {
+  isExtensionPageSender,
+  isProviderContentSender,
+  isRuntimeMessage,
+  type RuntimeMessage,
+  type RuntimeResponse,
+} from '~/core/messages';
+import type { Snapshot } from '~/core/types';
 import { claudeProvider } from '~/providers/claude';
 import type { UsageProvider, UsageResult } from '~/providers/types';
 import { initAlarms, syncPollCadence } from './alarms';
 import {
   clearSnapshot,
-  readAccountId,
   readState,
-  recordMessage,
   recordReading,
   writeAccountId,
   writeSnapshot,
@@ -32,7 +36,7 @@ import {
 export const providers: UsageProvider[] = [claudeProvider];
 
 /** Why a poll is happening. Only `invalidation` is rate-limited. */
-export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install' | 'reconcile' | 'tab';
+export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install' | 'tab';
 
 /**
  * Shortest gap between two polls triggered by an observed account change.
@@ -42,18 +46,6 @@ export type PollReason = 'alarm' | 'refresh' | 'invalidation' | 'install' | 'rec
  * back-to-back fetches for one piece of news.
  */
 const INVALIDATION_GAP_MS = 5_000;
-
-/**
- * How long to wait after a completion before asking the endpoint about it.
- *
- * A `message_limit` event is the server's own number, but it is the number as
- * of the moment the stream started; claude.ai's accounting settles a beat
- * later. Polling immediately reads the pre-send figure and looks like the send
- * did not count. This delay is a placeholder until it is measured against live
- * traffic — see the protocol-verification notes, step 8, which exists to replace
- * this constant with an observation.
- */
-export const RECONCILE_DELAY_MS = 4_000;
 
 /** Module-level, so it is forgotten on worker teardown. Losing it costs one poll. */
 let lastPollAt = 0;
@@ -68,8 +60,6 @@ let lastPollAt = 0;
  */
 let inFlight: Promise<void> | null = null;
 
-/** A reconcile already scheduled. One pending refresh is enough for any burst. */
-let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Forget everything the collector only holds in memory.
@@ -79,11 +69,8 @@ let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
  * instance across cases, so they need to ask.
  */
 export function resetCollectorMemory(): void {
-  if (reconcileTimer !== null) clearTimeout(reconcileTimer);
-  reconcileTimer = null;
   inFlight = null;
   lastPollAt = 0;
-  counted.clear();
 }
 
 /** Register every listener the collector needs. Called once, synchronously. */
@@ -128,24 +115,6 @@ export async function poll(reason: PollReason): Promise<void> {
   });
 
   return inFlight;
-}
-
-/**
- * Ask the authoritative endpoint about a send that just happened.
- *
- * One timer, however many events arrive: a completion that produces a
- * `message_limit` event and then a refusal is one send, and it deserves one
- * fetch. The timer is deliberately short — the worker stays alive for a few
- * seconds after handling a message, and if it is torn down anyway the poll
- * alarm is at most a minute behind, because a tab is open by definition when a
- * completion just happened.
- */
-export function scheduleReconcile(delay = RECONCILE_DELAY_MS): void {
-  if (reconcileTimer !== null) return;
-  reconcileTimer = setTimeout(() => {
-    reconcileTimer = null;
-    void poll('reconcile');
-  }, delay);
 }
 
 async function pollProvider(provider: UsageProvider): Promise<void> {
@@ -254,13 +223,7 @@ async function recordAccepted(
  * module is never going to send, and the caller would see `undefined` instead
  * of the answer the other listener produced.
  */
-const HANDLED = [
-  'wick:stream-limits',
-  'wick:message-sent',
-  'wick:refresh',
-  'wick:tab-open',
-  'wick:get-state',
-] as const;
+const HANDLED = ['wick:refresh', 'wick:tab-open', 'wick:get-state'] as const;
 
 type CollectorMessage = Extract<RuntimeMessage, { type: (typeof HANDLED)[number] }>;
 
@@ -280,10 +243,11 @@ function isCollectorMessage(message: RuntimeMessage): message is CollectorMessag
  */
 export function handleRuntimeMessage(
   message: unknown,
-  _sender: chrome.runtime.MessageSender,
+  sender: chrome.runtime.MessageSender,
   sendResponse: (response: RuntimeResponse) => void,
 ): boolean {
   if (!isRuntimeMessage(message) || !isCollectorMessage(message)) return false;
+  if (!trustedCollectorSender(message, sender)) return false;
 
   void respond(message)
     .then(sendResponse)
@@ -294,23 +258,26 @@ export function handleRuntimeMessage(
   return true;
 }
 
+function trustedCollectorSender(
+  message: CollectorMessage,
+  sender: chrome.runtime.MessageSender,
+): boolean {
+  if (message.type === 'wick:tab-open') {
+    return isProviderContentSender(
+      sender,
+      providers.flatMap((provider) => provider.matchPatterns),
+    );
+  }
+  return isExtensionPageSender(sender);
+}
+
 async function respond(message: CollectorMessage): Promise<RuntimeResponse> {
   switch (message.type) {
-    case 'wick:stream-limits':
-      await acceptStreamLimits(message.windows, message.at, message.source);
-      return { ok: true };
-
-    case 'wick:message-sent':
-      await countMessage(message.id, message.at);
-      return { ok: true };
-
     case 'wick:refresh':
       await poll('refresh');
       return { ok: true };
 
     case 'wick:tab-open':
-      // Cadence first: the poll that follows is one reading, and the cadence is
-      // every reading after it.
       await syncPollCadence();
       await poll('tab');
       return { ok: true };
@@ -321,65 +288,12 @@ async function respond(message: CollectorMessage): Promise<RuntimeResponse> {
 }
 
 /**
- * How many recently counted completions to remember.
- *
- * De-duplication only has to survive the moment: the ids it guards against are
- * two observations of one in-flight request, seconds apart at most. A few dozen
- * is far more than any burst, and the set dies with the worker, which is
- * exactly the lifetime the problem has.
+ * MAIN-world completion URLs, content types and stream events are currently
+ * unverified and page-forgeable. They are intentionally absent from HANDLED:
+ * only authoritative polling may write percentages/history, and no runtime
+ * message may increment a durable or public message total until an owner-
+ * verified confirmation signal exists.
  */
-const COUNTED_LIMIT = 64;
-
-const counted = new Set<string>();
-
-/** Count one accepted completion, unless this exact request was already counted. */
-async function countMessage(id: string, at: number): Promise<void> {
-  if (counted.has(id)) return;
-
-  counted.add(id);
-  if (counted.size > COUNTED_LIMIT) {
-    const oldest = counted.values().next().value;
-    if (oldest !== undefined) counted.delete(oldest);
-  }
-
-  await recordMessage(at, await readAccountId());
-}
-
-/**
- * Write an optimistic reading seen on the wire.
- *
- * Two things happen, in this order and for different reasons: the reading goes
- * in immediately, because it is what the user just did and they should see it
- * now; and an authoritative fetch is scheduled, because the reading is the
- * server's number from a beat earlier and only the endpoint can confirm where
- * the account actually landed.
- *
- * Precedence lives in the store, so this only has to respect its answer.
- */
-async function acceptStreamLimits(
-  windows: LimitWindow[],
-  at: number,
-  source: SnapshotSource,
-): Promise<void> {
-  const accountId = await readAccountId();
-
-  const stored = await writeSnapshot(
-    {
-      // The message carries no provider tag because only one provider has a
-      // MAIN-world bridge. A second one means a field here, not a guess.
-      providerId: claudeProvider.id,
-      accountId,
-      windows,
-      source,
-      at,
-    },
-    at,
-  );
-
-  await recordAccepted(stored, at, accountId);
-  scheduleReconcile();
-}
-
 /* ---- Cache invalidation -------------------------------------------------- */
 
 /**

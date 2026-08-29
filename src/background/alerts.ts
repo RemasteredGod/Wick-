@@ -43,13 +43,7 @@ import {
   recordAlert,
 } from './store';
 
-/**
- * Icon for the local notification.
- *
- * **The manifest declares no `icons` key**, so this path does not resolve yet
- * and Chrome refuses a `basic` notification whose image it cannot fetch.
- * `notify` falls back to sending without one rather than losing the alert.
- */
+/** Packaged unknown-state mark for local notifications. */
 const NOTIFICATION_ICON = 'icons/128.png';
 
 /** Days of history a weekly summary looks back over. */
@@ -444,36 +438,15 @@ async function dispatch(alert: PendingAlert, now: number): Promise<void> {
   await notify(alert.text);
 }
 
-/**
- * The local notification.
- *
- * Two attempts, no more. Chrome rejects a `basic` notification whose `iconUrl`
- * does not resolve, and the manifest currently ships no icons — so the second
- * attempt drops the icon and lets Chrome fall back to its own. Both are cheap
- * and neither can throw.
- */
+/** The local notification, always carrying the packaged 128px Wick mark. */
 async function notify(text: string): Promise<void> {
-  const options = {
-    type: 'basic',
-    title: 'Wick',
-    message: text,
-  } as const;
-
   try {
     await chrome.notifications.create({
-      ...options,
+      type: 'basic',
+      title: 'Wick',
+      message: text,
       iconUrl: chrome.runtime.getURL(NOTIFICATION_ICON),
     });
-    return;
-  } catch {
-    // Fall through to the icon-less attempt.
-  }
-
-  try {
-    // The typings mark `iconUrl` as required for `create`; Chrome accepts its
-    // absence and substitutes the extension's own icon. The cast is confined to
-    // this one call and exists only to express that.
-    await chrome.notifications.create(options as chrome.notifications.NotificationCreateOptions);
   } catch {
     // Notifications may be blocked at the OS level. Nothing to do about it.
   }

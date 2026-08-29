@@ -40,37 +40,41 @@ have to invent. See ADR 0001.
 
 ## Status
 
-Early, but no longer a shell. The extension builds, loads, collects, projects
-and draws its own toolbar gauge, and every number on screen comes from
-`chrome.storage.local` rather than from a placeholder.
+Wick is pre-release. The extension builds, loads, collects, projects, draws its
+own toolbar gauge, and reads its displayed state from `chrome.storage.local`.
+Alerts are local browser notifications and need no server or account.
 
-Alerts need no server and no setup — they are browser notifications. One thing
-still requires account access outside this repository: the protocol has not been
-checked against live traffic. Until that is done, treat extension readings as
-provisional — the protocol notes are a hypothesis about undocumented behaviour,
-and they say so on the first line.
+The collector depends on an undocumented protocol that has not yet received the
+required owner-led verification against live signed-in traffic. Until that gate
+is closed, extension readings remain provisional.
 
-The leaderboard is not required to run the extension. Its code is complete and
-its pages render, but it has not been deployed, so Join reports the board as
-unavailable until a Supabase project and the two environment variables behind it
-exist.
+The optional leaderboard implementation, Vercel functions, Supabase schema,
+ordered migrations, and production runbook are present in this repository. The
+repository cannot establish whether the configured host is deployed or healthy;
+Join works only when that host and its database are correctly deployed,
+configured, permitted, and reachable. **Launch remains blocked** on the manual
+and hosted gates in [`RELEASING.md`](RELEASING.md), including protocol
+verification, a proved-restorable database backup and staged migration,
+effective privilege and atomic Leave checks, hosted WAF/cache/`429` observation,
+Windows Chrome smoke testing, privacy/store review, and explicit owner approval
+for each production or publishing action.
 
 | Milestone | |
 |---|---|
 | M1 | Scaffold, design tokens, interface shell — done |
-| M2 | Verify the protocol against live traffic — **outstanding**, needs a signed-in session in DevTools |
+| M2 | Verify the protocol against live traffic — **outstanding manual gate** |
 | M3 | Real data — collector, store, polling — done |
 | M4 | Daily history and the projection engine — done |
 | M5 | Toolbar gauge rendering — done |
 | M6 | Threshold alerts as local notifications — done |
-| M7 | Self-reported leaderboard, fed by the extension — implemented; **deployment outstanding** |
+| M7 | Self-reported leaderboard — implementation and runbook present; **hosted launch gates outstanding** |
 
 Gemini and ChatGPT support, and cross-model conversation handoff, are on the
 roadmap beyond v1. They are not being built now.
 
 ## Install from source
 
-Requires Node 20+ and pnpm.
+Requires Node 24 and the pnpm version pinned in `package.json`.
 
 ```sh
 pnpm install
@@ -151,7 +155,7 @@ with the extension:
   the page renderers. No I/O, no database, no `process`.
 - **`server/`** — the `BoardStore` port and its Supabase adapter, over PostgREST
   with no SDK.
-- **`api/`** — five Vercel functions: the landing page, the board, a profile,
+- **`api/`** — six Vercel functions: the landing page, the board, a profile,
   and the enrol/submit/leave endpoints the extension calls.
 
 Contributors and AI agents: read [`AGENTS.md`](AGENTS.md) before your first

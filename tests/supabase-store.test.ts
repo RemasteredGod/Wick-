@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { configFromEnv, createSupabaseStore, hashToken } from '../server/supabase-store';
 import { fold } from '../leaderboard/names';
 
@@ -86,100 +86,150 @@ describe('tokens', () => {
 });
 
 describe('enrolling', () => {
-  it('writes the folded name alongside the display name', async () => {
-    // Uniqueness is decided on the folded column. Writing only `name` would
-    // make the whole confusable defence decorative.
-    const { calls, store } = rest();
-    const enrolment = await store.enroll(ASH, () => 'Ash_Padhi');
+  it('uses one transactional RPC after the read-only account lookup', async () => {
+    const { calls, store } = rest({
+      'rpc/enroll_profile': [{ name: 'ash-padhi', existing: false }],
+    });
 
-    expect(enrolment).toEqual({ token: TOKEN, name: 'Ash_Padhi', existing: false });
+    expect(await store.enroll(ASH, () => 'ash-padhi')).toEqual({
+      token: TOKEN,
+      name: 'ash-padhi',
+      existing: false,
+    });
 
-    // The first call looks the account up; the second creates the profile.
-    const insert = calls.find((call) => call.method === 'POST' && call.url.includes('profiles'));
-    const body = insert?.body as Record<string, unknown>;
-    expect(body['email']).toBe(ASH);
-    expect(body['name']).toBe('Ash_Padhi');
-    expect(body['name_folded']).toBe(fold('Ash_Padhi'));
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.method).toBe('GET');
+    expect(calls[0]?.url).toContain('profiles?email=eq.');
+    expect(calls[1]?.method).toBe('POST');
+    expect(calls[1]?.url).toContain('/rest/v1/rpc/enroll_profile');
+    expect(calls[1]?.body).toEqual({
+      p_email: ASH,
+      p_name: 'ash-padhi',
+      p_name_folded: fold('ash-padhi'),
+      p_token_hash: HASH,
+    });
+    expect(calls.some((call) => /\/rest\/v1\/(profiles|tokens)$/.test(call.url))).toBe(false);
   });
 
-  it('gives a second browser on one account the existing name', async () => {
-    // One Claude account is one public profile, however many browsers sign
-    // into it. The proposal is not even consulted.
-    const { store } = rest({ 'profiles?email=eq.': [{ name: 'amber-ledger-0042' }] });
+  it('sends only the hash to the database and returns the locally minted token', async () => {
+    const { calls, store } = rest({
+      'rpc/enroll_profile': [{ name: 'held', existing: false }],
+    });
 
-    expect(await store.enroll(ASH, () => 'never-used')).toEqual({
+    const result = await store.enroll(ASH, () => 'held');
+    expect(result?.token).toBe(TOKEN);
+    for (const call of calls) {
+      expect(call.url).not.toContain(TOKEN);
+      expect(JSON.stringify(call.body)).not.toContain(TOKEN);
+    }
+    expect(calls[1]?.body).toMatchObject({ p_token_hash: HASH });
+  });
+
+  it('does not assign for an existing account and atomically mints another browser token', async () => {
+    const assign = vi.fn(() => 'never-used');
+    const { calls, store } = rest({
+      'profiles?email=eq.': [{ name: 'amber-ledger-0042' }],
+      'rpc/enroll_profile': [{ name: 'amber-ledger-0042', existing: true }],
+    });
+
+    expect(await store.enroll(ASH, assign)).toEqual({
       token: TOKEN,
       name: 'amber-ledger-0042',
       existing: true,
     });
+    expect(assign).not.toHaveBeenCalled();
+    expect(calls[1]?.body).toEqual({
+      p_email: ASH,
+      p_name: null,
+      p_name_folded: null,
+      p_token_hash: HASH,
+    });
   });
 
-  it('binds each browser token to the account rather than to a profile row', async () => {
-    const { calls, store } = rest({ 'profiles?email=eq.': [{ name: 'held' }] });
-    await store.enroll(ASH, () => 'unused');
+  it('accepts the exact winning name when a concurrent first enrolment wins the email lock', async () => {
+    const { calls, store } = rest({
+      'rpc/enroll_profile': [{ name: 'winner-name-0042', existing: true }],
+    });
 
-    const bind = calls.find((call) => call.method === 'POST' && call.url.includes('tokens'));
-    expect(bind?.body).toEqual({ token_hash: HASH, email: ASH });
+    expect(await store.enroll(ASH, () => 'losing-candidate-0001')).toEqual({
+      token: TOKEN,
+      name: 'winner-name-0042',
+      existing: true,
+    });
+    expect(calls).toHaveLength(2);
   });
 
-  /**
-   * A fake that tells the account lookup apart from the profile insert.
-   *
-   * `enroll` reads the account first and only then writes, so a fake that
-   * answers every request identically cannot express "the lookup found nothing
-   * and the insert was refused" — which is the case every test below is about.
-   */
-  function enrolling(onInsert: (attempt: number) => Response) {
-    let inserts = 0;
-    const calls: string[] = [];
+  function enrolling(onRpc: (attempt: number) => Response) {
+    let attempts = 0;
+    const calls: Call[] = [];
 
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
-      calls.push(`${method} ${String(url)}`);
-
+      calls.push({
+        url: String(url),
+        method,
+        body: init.body === undefined ? null : JSON.parse(String(init.body)),
+        headers: (init.headers ?? {}) as Record<string, string>,
+      });
       if (method === 'GET') return new Response('[]', { status: 200 });
-      if (String(url).includes('tokens')) return new Response('[]', { status: 200 });
-
-      inserts += 1;
-      return onInsert(inserts);
+      attempts += 1;
+      return onRpc(attempts);
     }) as unknown as typeof fetch;
 
-    return { calls, inserts: () => inserts, store: createSupabaseStore(config, fetchImpl, () => TOKEN) };
+    return {
+      calls,
+      attempts: () => attempts,
+      store: createSupabaseStore(config, fetchImpl, () => TOKEN),
+    };
   }
 
-  it('retries with a fresh proposal when the unique index refuses one', async () => {
-    // The insert is the uniqueness check: reading the name first and then
-    // writing would let two concurrent enrolments take the same one.
-    const { store } = enrolling((attempt) =>
+  it('retries only the RPC candidate-name PT409 with a fresh proposal', async () => {
+    const { calls, store } = enrolling((attempt) =>
       attempt === 1
-        ? new Response('duplicate key value', { status: 409 })
-        : new Response('[]', { status: 200 }),
+        ? new Response('{"code":"PT409","message":"candidate name unavailable"}', {
+            status: 409,
+          })
+        : new Response('[{"name":"free","existing":false}]', { status: 200 }),
     );
-
     const names = ['taken', 'free'];
     let index = 0;
 
-    const enrolment = await store.enroll(ASH, () => names[index++] ?? 'fallback');
-    expect(enrolment?.name).toBe('free');
-    expect(enrolment?.existing).toBe(false);
+    expect(await store.enroll(ASH, () => names[index++] ?? 'fallback')).toEqual({
+      token: TOKEN,
+      name: 'free',
+      existing: false,
+    });
+    expect(calls.filter((call) => call.url.includes('rpc/enroll_profile'))).toHaveLength(2);
+    expect(calls[1]?.body).toMatchObject({ p_name: 'taken' });
+    expect(calls[2]?.body).toMatchObject({ p_name: 'free' });
   });
 
-  it('gives up rather than looping forever on a full namespace', async () => {
-    const { store } = enrolling(() => new Response('duplicate key value', { status: 409 }));
-    expect(await store.enroll(ASH, () => 'taken')).toBeNull();
-  });
-
-  it('raises anything that is not a name conflict on the first attempt', async () => {
-    // Retrying a permanent failure — a column that does not exist, a key that
-    // is not accepted — spends twenty sequential round trips and then the
-    // function's whole time budget, and reaches the user as "could not reach
-    // the leaderboard". It has to fail fast and say what happened.
-    const { store, inserts } = enrolling(
-      () => new Response('column "email" does not exist', { status: 400 }),
+  it('returns null after twenty explicit candidate conflicts', async () => {
+    const { store, attempts } = enrolling(
+      () => new Response('{"code":"PT409"}', { status: 409 }),
     );
+    await expect(store.enroll(ASH, () => 'taken')).resolves.toBeNull();
+    expect(attempts()).toBe(20);
+  });
 
-    await expect(store.enroll(ASH, () => 'ash')).rejects.toThrow('supabase 400 on profiles');
-    expect(inserts()).toBe(1);
+  it.each([
+    [409, '{"code":"23505"}', 'token collision'],
+    [400, '{"code":"22023"}', 'invalid input'],
+    [500, '{"code":"XX000"}', 'server failure'],
+  ])('propagates a non-name RPC %s on the first attempt (%s)', async (status, body) => {
+    const { store, attempts } = enrolling(() => new Response(body, { status }));
+
+    await expect(store.enroll(ASH, () => 'candidate')).rejects.toThrow(
+      `supabase ${String(status)} on rpc/enroll_profile`,
+    );
+    expect(attempts()).toBe(1);
+  });
+
+  it('rejects an empty or malformed RPC result instead of inventing enrollment state', async () => {
+    const { store } = rest({ 'rpc/enroll_profile': [] });
+    await expect(store.enroll(ASH, () => 'candidate')).rejects.toThrow(
+      'supabase invalid response on rpc/enroll_profile',
+    );
   });
 });
 
@@ -287,43 +337,45 @@ describe('boards', () => {
 });
 
 describe('leaving', () => {
-  it('deletes rows and tokens before the profile they hang off', async () => {
-    // The other order leaves rows keyed on an account nothing points at any
-    // more: invisible to the board, which reads through profiles, and
-    // undeletable.
-    const { calls, store } = rest({ 'tokens?token_hash=eq.': [{ email: ASH }] });
+  it('uses one atomic RPC with only the hashed token', async () => {
+    const { calls, store } = rest();
     await store.forget(TOKEN);
 
-    const deletes = calls.filter((call) => call.method === 'DELETE').map((call) => call.url);
-    const rows = deletes.findIndex((url) => url.includes('daily_rows'));
-    const tokens = deletes.findIndex((url) => url.includes('tokens'));
-    const profile = deletes.findIndex((url) => url.includes('profiles'));
-
-    expect(rows).toBeGreaterThanOrEqual(0);
-    expect(profile).toBeGreaterThan(rows);
-    expect(profile).toBeGreaterThan(tokens);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toContain('/rest/v1/rpc/forget_profile');
+    expect(calls[0]?.body).toEqual({ p_token_hash: HASH });
+    expect(calls[0]?.url).not.toContain(TOKEN);
+    expect(JSON.stringify(calls[0]?.body)).not.toContain(TOKEN);
   });
 
-  it('unbinds every browser on the account, not just the one that asked', async () => {
-    // Leave says the profile is gone. Deleting only the calling token would
-    // leave the public page up and another browser still publishing to it.
-    const { calls, store } = rest({ 'tokens?token_hash=eq.': [{ email: ASH }] });
-    await store.forget(TOKEN);
+  it('treats an unknown or already-forgotten token as a successful no-op', async () => {
+    // The scalar false is the function's result for no matching profile.
+    // The adapter intentionally does not distinguish it: Leave is idempotent
+    // and must not expose whether an account used to exist.
+    const fetchImpl = (async () =>
+      new Response('false', { status: 200 })) as unknown as typeof fetch;
+    const store = createSupabaseStore(config, fetchImpl, () => TOKEN);
 
-    const tokenDelete = calls.find(
-      (call) => call.method === 'DELETE' && call.url.includes('tokens'),
+    await expect(store.forget('not-held')).resolves.toBeUndefined();
+  });
+
+  it('does not hide a missing RPC as an unknown token', async () => {
+    const missing = (async () =>
+      new Response('{"code":"PGRST202"}', { status: 404 })) as unknown as typeof fetch;
+    const store = createSupabaseStore(config, missing, () => TOKEN);
+
+    await expect(store.forget('not-held')).rejects.toThrow(
+      'supabase 404 on rpc/forget_profile',
     );
-    expect(tokenDelete?.url).toContain(`email=eq.${encodeURIComponent(ASH)}`);
-    expect(tokenDelete?.url).not.toContain('token_hash');
   });
 
-  it('leaves nothing behind to prove somebody was there', async () => {
-    const { calls, store } = rest({ 'tokens?token_hash=eq.': [{ email: ASH }] });
+  it('does not issue direct table deletes that could commit independently', async () => {
+    const { calls, store } = rest();
     await store.forget(TOKEN);
 
-    // No tombstone, no soft-delete flag. One lookup, then only deletes.
-    const writes = calls.filter((call) => call.method !== 'GET');
-    expect(writes.every((call) => call.method === 'DELETE')).toBe(true);
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
+    expect(calls.some((call) => /\/(profiles|tokens|daily_rows)\?/.test(call.url))).toBe(false);
   });
 });
 

@@ -5,47 +5,30 @@
  * card to the renderer. `buildCard` decides what a profile may show and
  * `renderProfile` draws it; both are tested without a network.
  *
- * **One read, not three.** The store answers all three periods and the streak
- * together. Asking a period at a time meant reloading and re-ranking every
- * participant three times for one page, and still could not report a streak,
- * because a `Standing` has already summarised the individual days away.
- *
- * Nothing here is per-viewer, and nothing may become so without giving up the
- * edge cache below.
+ * Profile responses are not cached. Leave promises that the public profile is
+ * deleted, so neither a successful page nor a cached miss may outlive the
+ * store state that produced it.
  */
 
 import { buildCard, nameFromPath } from '../leaderboard/profile.js';
 import { renderMissingProfile, renderProfile } from '../leaderboard/render.js';
 import { configFromEnv, createSupabaseStore } from '../server/supabase-store.js';
-import { sendHtml, type Req, type Res } from '../server/http.js';
+import { sendHtml, sendText, type Req, type Res } from '../server/http.js';
 import type { ProfileStats } from '../server/store.js';
 
-/**
- * How long a profile may be served from the edge.
- *
- * Shorter than the board's minute, and deliberately with **no
- * `stale-while-revalidate`**. Leaving deletes the profile, and `PRIVACY.md`
- * says so plainly; a `stale-while-revalidate` window would keep serving the
- * page for its whole duration *after* the row was gone, so the board's
- * `s-maxage=60, stale-while-revalidate=300` would leave somebody's page up for
- * six minutes after they asked for it to go. A profile is one person's page and
- * gets little traffic, so there is nothing much to protect the origin from.
- */
-const PROFILE_CACHE = 'public, s-maxage=30';
-
-/**
- * How long a 404 may be served from the edge.
- *
- * Shorter still. The names on a fresh profile are assigned, so the common way
- * to reach a 404 is to look someone up a moment before they publish their first
- * day — and a cached miss would then outlive the thing that caused it.
- */
-const MISSING_CACHE = 'public, s-maxage=10';
+const PROFILE_CACHE = 'no-store';
 
 export default async function handler(req: Req, res: Res): Promise<void> {
+  const headOnly = req.method === 'HEAD';
+  if (req.method !== 'GET' && !headOnly) {
+    res.setHeader('Allow', 'GET, HEAD');
+    sendText(res, 405, 'Method not allowed');
+    return;
+  }
+
   const name = readName(req);
   if (name === null) {
-    sendHtml(res, 404, renderMissingProfile(), MISSING_CACHE);
+    sendHtml(res, 404, renderMissingProfile(), PROFILE_CACHE, headOnly);
     return;
   }
 
@@ -58,7 +41,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   } catch {
     // A page that cannot reach its database says so rather than rendering an
     // empty card, which would read as "this person has submitted nothing".
-    sendHtml(res, 503, renderMissingProfile(), 'no-store');
+    sendHtml(res, 503, renderMissingProfile(), PROFILE_CACHE, headOnly);
     return;
   }
 
@@ -66,12 +49,12 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   // holder who has published nothing yet. The page deliberately does not say
   // which: separating them would let anyone enumerate who had quit.
   if (stats === null) {
-    sendHtml(res, 404, renderMissingProfile(), MISSING_CACHE);
+    sendHtml(res, 404, renderMissingProfile(), PROFILE_CACHE, headOnly);
     return;
   }
 
   const card = buildCard(name, stats.standings, stats.streak, stats.leaderTotal);
-  sendHtml(res, 200, renderProfile(card, today), PROFILE_CACHE);
+  sendHtml(res, 200, renderProfile(card, today), PROFILE_CACHE, headOnly);
 }
 
 /**

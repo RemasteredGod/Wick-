@@ -18,6 +18,7 @@
  */
 
 import { h, render } from 'preact';
+import { isRuntimeMessage } from '~/core/messages';
 import { useState } from 'preact/hooks';
 import { project } from '~/core/projection';
 import { allowanceWindow } from '~/core/windows';
@@ -236,39 +237,46 @@ safely(waitForAnchor);
  * else's page and not knowing the account is a state the board already handles.
  */
 function watchAccount(): void {
-  let last: string | null = null;
+  let last: string | null | undefined;
+  let checking = false;
 
-  // Answer the worker when it asks directly. Join is pressed in the popup, which
-  // cannot read this page — so without this the worker's only source is the poll
-  // below, and pressing Join in the first few seconds after an install reports
-  // the board as unreachable when nothing is wrong with it.
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if ((message as { type?: unknown } | null)?.type !== 'wick:read-account') return false;
+  // The worker is the only legitimate caller. The sender id is host-provided;
+  // unlike a public message tag, page script cannot forge it.
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!isRuntimeMessage(message) || message.type !== 'wick:read-account') return false;
+    if (sender.id !== chrome.runtime.id) return false;
 
     try {
       sendResponse({ ok: true, email: findUserEmail() });
     } catch {
       sendResponse({ ok: true, email: null });
     }
-    // Answered synchronously; nothing to hold the channel open for.
     return false;
   });
 
-  const check = () => {
+  const check = async () => {
+    if (checking) return;
+    checking = true;
     try {
-      const email = findUserEmail();
-      if (email === null || email === last) return;
+      const found = findUserEmail();
+      const observation = { type: 'wick:account-email', email: found } as const;
+      const email = isRuntimeMessage(observation) ? found : null;
+      if (email === last) return;
 
+      // Null is an observation too. Persisting A → null → B makes publication
+      // pause immediately while preserving the old token for a later Leave.
+      await chrome.runtime.sendMessage({ type: 'wick:account-email', email });
       last = email;
-      void chrome.runtime.sendMessage({ type: 'wick:account-email', email }).catch(() => undefined);
     } catch {
-      // A worker that has been torn down and is still waking rejects the send.
-      // The next tick tries again.
+      // Do not advance `last`: the next tick retries a transition the worker
+      // may have missed while waking or during navigation.
+    } finally {
+      checking = false;
     }
   };
 
-  check();
-  setInterval(check, ACCOUNT_POLL_MS);
+  void check();
+  setInterval(() => void check(), ACCOUNT_POLL_MS);
 }
 
 /**

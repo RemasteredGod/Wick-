@@ -87,9 +87,23 @@ export function createSupabaseStore(
     const response = await fetchImpl(`${config.url}/rest/v1/${path}`, { ...init, headers });
 
     if (!response.ok) {
-      // The body carries PostgREST's own message, which is the only useful part.
-      // It is not logged — it can quote row values — but it is worth raising.
-      throw new RestError(response.status, path.split('?')[0] ?? path);
+      // Keep only PostgREST's machine code. Its message/detail can quote row
+      // values, so neither is retained or surfaced by this adapter.
+      let code: string | null = null;
+      try {
+        const errorBody = (await response.json()) as unknown;
+        if (
+          typeof errorBody === 'object' &&
+          errorBody !== null &&
+          'code' in errorBody &&
+          typeof errorBody.code === 'string'
+        ) {
+          code = errorBody.code;
+        }
+      } catch {
+        // A non-JSON upstream failure still propagates by status and endpoint.
+      }
+      throw new RestError(response.status, path.split('?')[0] ?? path, code);
     }
 
     // DELETE and PATCH without `return=representation` answer 204 with no body.
@@ -139,77 +153,72 @@ export function createSupabaseStore(
     return rows[0]?.email ?? null;
   }
 
-  /** Point a fresh token at an account. */
-  async function bindToken(token: string, email: string): Promise<void> {
-    await rest('tokens', {
-      method: 'POST',
-      body: JSON.stringify({ token_hash: hashToken(token), email }),
-    });
-  }
-
   return {
     /**
-     * Bind a browser to the profile for an account, creating it if new.
+     * Bind a browser to an account in one database transaction.
      *
-     * The insert is the uniqueness check: `name_folded` is a unique column, so
-     * two concurrent enrolments proposing the same name cannot both succeed —
-     * one gets a 409 and retries with a fresh proposal. Reading first and then
-     * writing would let both through, which is exactly the race a random
-     * assignment across a finite word list will eventually hit.
+     * The preliminary read exists only to preserve `BoardStore`'s promise that
+     * `assign` is not consulted for an account already holding a profile. The
+     * RPC repeats the lookup under a per-email transaction lock: that locked
+     * lookup, optional profile insert, and hashed-token insert are the atomic
+     * authority. A token failure therefore rolls a new profile back, while two
+     * first-time callers converge on the exact name selected by the winner.
      *
-     * **Only a 409 is retried.** Retrying every failure turns a permanent one
-     * — a column that does not exist, a key that is not accepted — into twenty
-     * sequential round trips and then a function timeout, which reaches the
-     * user as "could not reach the leaderboard" and tells whoever is debugging
-     * it nothing at all. Anything that is not a name conflict is raised on the
-     * first attempt, and the handler answers 503 in under a second.
+     * The function maps only a candidate `name_folded` collision to `PT409`.
+     * Token uniqueness failures and every unknown/server failure keep their own
+     * code and are raised immediately rather than being mistaken for a name to
+     * retry.
      */
     async enroll(email, assign) {
       const token = mintToken();
-
-      // An account that already has a profile gets a second token pointing at
-      // it, and keeps its name. This is the whole cross-browser story: the
-      // primary key is the account, so there is nothing to look up but the
-      // email and nothing for the user to do.
+      const tokenHash = hashToken(token);
       const held = await rest<{ name: string }>(
         `profiles?email=eq.${encodeURIComponent(email)}&select=name&limit=1`,
       );
       const existing = held[0];
 
+      const invoke = async (name: string | null): Promise<{ name: string; existing: boolean }> => {
+        const rows = await rest<{ name: unknown; existing: unknown }>('rpc/enroll_profile', {
+          method: 'POST',
+          body: JSON.stringify({
+            p_email: email,
+            p_name: name,
+            p_name_folded: name === null ? null : fold(name),
+            p_token_hash: tokenHash,
+          }),
+        });
+        const result = rows[0];
+        if (
+          rows.length !== 1 ||
+          result === undefined ||
+          typeof result.name !== 'string' ||
+          result.name.length === 0 ||
+          typeof result.existing !== 'boolean'
+        ) {
+          throw new Error('supabase invalid response on rpc/enroll_profile');
+        }
+        return { name: result.name, existing: result.existing };
+      };
+
       if (existing !== undefined) {
-        await bindToken(token, email);
-        return { token, name: existing.name, existing: true };
+        const result = await invoke(null);
+        return { token, ...result };
       }
 
       for (let attempt = 0; attempt < NAME_ATTEMPTS; attempt += 1) {
-        const name = assign();
-
+        const candidate = assign();
         try {
-          await rest('profiles', {
-            method: 'POST',
-            body: JSON.stringify({ email, name, name_folded: fold(name) }),
-          });
+          const result = await invoke(candidate);
+          return { token, ...result };
         } catch (error) {
-          // A 409 is either the name being taken, or two browsers on one
-          // account racing to create the profile. Re-reading settles both: if
-          // the account now has a profile, the race is what happened and its
-          // name is the answer.
-          if (!(error instanceof RestError) || error.status !== 409) throw error;
-
-          const raced = (
-            await rest<{ name: string }>(
-              `profiles?email=eq.${encodeURIComponent(email)}&select=name&limit=1`,
-            )
-          )[0];
-          if (raced !== undefined) {
-            await bindToken(token, email);
-            return { token, name: raced.name, existing: true };
+          if (
+            !(error instanceof RestError) ||
+            error.status !== 409 ||
+            error.code !== 'PT409'
+          ) {
+            throw error;
           }
-          continue;
         }
-
-        await bindToken(token, email);
-        return { token, name, existing: false };
       }
       return null;
     },
@@ -257,20 +266,18 @@ export function createSupabaseStore(
     },
 
     async forget(token) {
-      const email = await emailFor(token);
-      if (email === null) return;
-      const key = encodeURIComponent(email);
-
-      // Account-wide, not browser-wide. Leave says the profile is gone; a
-      // version that unbound only the browser it was pressed in would leave the
-      // public page up and another browser still publishing to it.
+      // One database function owns the account lookup and profile delete. The
+      // profile's verified cascading foreign keys remove every browser token
+      // and daily row in the same transaction, so a failed request cannot leave
+      // a public profile half-deleted.
       //
-      // Rows and tokens before the profile they hang off. The schema cascades,
-      // but the explicit order does not depend on that constraint surviving a
-      // database somebody rebuilt by hand.
-      await rest(`daily_rows?email=eq.${key}`, { method: 'DELETE' });
-      await rest(`tokens?email=eq.${key}`, { method: 'DELETE' });
-      await rest(`profiles?email=eq.${key}`, { method: 'DELETE' });
+      // The function deliberately returns false for an unknown hash. Leave is
+      // idempotent: a repeated request, a stale browser, and an invalid token
+      // all have the same safe outcome and reveal nothing about past profiles.
+      await rest('rpc/forget_profile', {
+        method: 'POST',
+        body: JSON.stringify({ p_token_hash: hashToken(token) }),
+      });
     },
   };
 }
@@ -278,15 +285,16 @@ export function createSupabaseStore(
 /**
  * A PostgREST response that was not ok.
  *
- * Carries the status because one caller has to tell a name conflict apart from
- * everything else: `enroll` retries a 409 and must not retry anything else. The
- * message names the status and the table and quotes no row data — PostgREST's
- * own body can carry the values that caused the failure.
+ * Carries the status and safe machine code because one caller has to tell a
+ * candidate-name conflict apart from every other 409. `enroll` retries only
+ * `PT409`; the message names the status and endpoint and quotes no row data —
+ * PostgREST's own message/detail can carry the values that caused the failure.
  */
 export class RestError extends Error {
   constructor(
     readonly status: number,
     readonly table: string,
+    readonly code: string | null = null,
   ) {
     super(`supabase ${String(status)} on ${table}`);
     this.name = 'RestError';

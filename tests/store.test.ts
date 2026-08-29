@@ -19,12 +19,16 @@ import type { DailyRollup, LimitWindow } from '~/core/types';
 import {
   KEYS,
   clearSnapshot,
+  readAccountEmail,
   readAllHistory,
   readHistory,
+  readLeaderboardLedger,
   readSnapshot,
   readState,
+  recordConfirmedLeaderboardMessage,
   recordMessage,
   recordReading,
+  writeAccountEmail,
   writeAccountId,
   writeSnapshot,
 } from '~/background/store';
@@ -54,6 +58,10 @@ function window(patch: Partial<LimitWindow> & { key: string }): LimitWindow {
     role: 'weekly',
     ...patch,
   };
+}
+
+function localNoon(year: number, month: number, day: number): number {
+  return new Date(year, month - 1, day, 12, 0, 0, 0).getTime();
 }
 
 function storedHistory(): DailyRollup[] {
@@ -200,5 +208,88 @@ describe('clearSnapshot', () => {
     expect(await readSnapshot()).toBeNull();
     // Signing out is not an instruction to destroy the user's own history.
     expect(await readHistory('org-1')).toHaveLength(1);
+  });
+});
+
+
+
+describe('nullable account observations', () => {
+  it('persists the full A to null to B transition', async () => {
+    await writeAccountEmail('  A@Example.com ');
+    expect(await readAccountEmail()).toBe('a@example.com');
+
+    await writeAccountEmail(null);
+    expect(await readAccountEmail()).toBeNull();
+    expect(fake.store.has(KEYS.accountEmail)).toBe(true);
+    expect(fake.store.get(KEYS.accountEmail)).toBeNull();
+
+    await writeAccountEmail('B@Example.com');
+    expect(await readAccountEmail()).toBe('b@example.com');
+  });
+});
+
+describe('leaderboard publication ledger', () => {
+  it('aggregates trusted confirmations for one email across organisation switches', async () => {
+    await writeAccountId('org-1');
+    await recordConfirmedLeaderboardMessage(' Ash@Example.com ', NOW);
+    await writeAccountId('org-2');
+    await recordConfirmedLeaderboardMessage('ash@example.com', NOW);
+
+    expect(await readLeaderboardLedger('ASH@EXAMPLE.COM')).toEqual([
+      { date: TODAY, email: 'ash@example.com', messages: 2 },
+    ]);
+    // Organisation-scoped projection history is a separate record and is not
+    // manufactured merely because a publishable confirmation exists.
+    expect(await readAllHistory()).toEqual([]);
+  });
+
+  it('isolates two verified emails used on the same date', async () => {
+    await recordConfirmedLeaderboardMessage('a@example.com', NOW);
+    await recordConfirmedLeaderboardMessage('b@example.com', NOW);
+    await recordConfirmedLeaderboardMessage('a@example.com', NOW);
+
+    expect(await readLeaderboardLedger('a@example.com')).toEqual([
+      { date: TODAY, email: 'a@example.com', messages: 2 },
+    ]);
+    expect(await readLeaderboardLedger('b@example.com')).toEqual([
+      { date: TODAY, email: 'b@example.com', messages: 1 },
+    ]);
+  });
+
+  it('retains an inclusive 90-calendar-day window per email without legacy backfill', async () => {
+    const tooOld = localNoon(2025, 12, 30);
+    const oldestRetained = localNoon(2025, 12, 31);
+    const newest = localNoon(2026, 3, 30);
+
+    await recordConfirmedLeaderboardMessage('ash@example.com', tooOld);
+    await recordConfirmedLeaderboardMessage('other@example.com', tooOld);
+    await recordConfirmedLeaderboardMessage('ash@example.com', oldestRetained);
+    fake.store.set(KEYS.history, [
+      { date: TODAY, windows: {}, messageCount: 99, hourlyMessages: new Array(24).fill(0) },
+    ]);
+    await recordConfirmedLeaderboardMessage('ash@example.com', newest);
+    // A delayed old signal cannot widen a partition whose latest day is newer.
+    await recordConfirmedLeaderboardMessage('ash@example.com', tooOld);
+
+    expect(await readLeaderboardLedger('ash@example.com')).toEqual([
+      { date: '2025-12-31', email: 'ash@example.com', messages: 1 },
+      { date: '2026-03-30', email: 'ash@example.com', messages: 1 },
+    ]);
+    // Pruning Ash never uses Ash's date to evict another email's rows.
+    expect(await readLeaderboardLedger('other@example.com')).toEqual([
+      { date: '2025-12-30', email: 'other@example.com', messages: 1 },
+    ]);
+    expect(await readAllHistory()).toHaveLength(1);
+  });
+
+  it('uses calendar dates across the spring DST boundary rather than elapsed hours', async () => {
+    await recordConfirmedLeaderboardMessage('ash@example.com', localNoon(2026, 3, 8));
+    await recordConfirmedLeaderboardMessage('ash@example.com', localNoon(2026, 3, 9));
+    await recordConfirmedLeaderboardMessage('ash@example.com', localNoon(2026, 6, 6));
+
+    expect(await readLeaderboardLedger('ash@example.com')).toEqual([
+      { date: '2026-03-09', email: 'ash@example.com', messages: 1 },
+      { date: '2026-06-06', email: 'ash@example.com', messages: 1 },
+    ]);
   });
 });

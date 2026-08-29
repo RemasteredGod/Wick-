@@ -128,6 +128,7 @@ export function App() {
           enrolled={state.settings.boardToken !== null}
           name={state.settings.boardName}
           today={messagesToday(state.history, now)}
+          syncState={state.settings.boardSyncState}
         />
       </div>
 

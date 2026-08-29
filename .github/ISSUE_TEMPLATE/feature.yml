@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose an improvement within Wick's documented scope
+title: "[Feature]: "
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: Wick v1 is Claude-only and percentage-based. Token estimation, cost tables, and additional providers require a new decision record.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy, permissions, and data impact
+      description: State whether this needs new data, network calls, permissions, or third parties.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

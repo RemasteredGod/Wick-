@@ -1,6 +1,9 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../src/manifest';
 import { BOARD_ORIGIN, BOARD_ORIGIN_PATTERN } from '~/background/board';
+import { ICON_PATHS } from './helpers/icon-png';
 
 /**
  * `defineManifest` returns a union that also admits a promise and a factory,
@@ -51,6 +54,39 @@ describe('extension manifest', () => {
 
   it('does not expose a TypeScript module for DOM injection', () => {
     expect(manifest).not.toHaveProperty('web_accessible_resources');
+  });
+
+  it('references every packaged icon from the extension and action', () => {
+    expect(config.icons).toEqual(ICON_PATHS);
+    expect(config.action?.default_icon).toEqual(ICON_PATHS);
+    expect(config.action?.default_title).toBe('Wick');
+
+    for (const path of Object.values(ICON_PATHS)) {
+      expect(existsSync(resolve(import.meta.dirname, '../public', path)), `${path} must exist`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('does not use static brand favicons as toolbar usage state', () => {
+    const referenced = [
+      ...Object.values(config.icons ?? {}),
+      ...Object.values(config.action?.default_icon ?? {}),
+    ];
+    expect(referenced).not.toContain('favicon.svg');
+    expect(referenced).not.toContain('favicon-16.png');
+    expect(referenced).not.toContain('favicon-32.png');
+  });
+
+  it('preserves the install-time permission set', () => {
+    expect(config.permissions).toEqual([
+      'storage',
+      'alarms',
+      'cookies',
+      'webRequest',
+      'notifications',
+    ]);
+    expect(config).not.toHaveProperty('content_security_policy');
   });
 });
 

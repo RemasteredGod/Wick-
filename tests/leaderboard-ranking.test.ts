@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isDay, weekStart, monthStart, inPeriod, daysBetween } from '../leaderboard/periods';
-import { readSubmission, MAX_MESSAGES } from '../leaderboard/submission';
+import { readSubmission as parseSubmission, MAX_MESSAGES } from '../leaderboard/submission';
 import type { DailyRow } from '../leaderboard/submission';
 import {
   board,
@@ -61,6 +61,11 @@ describe('periods', () => {
 /* ---- submission ----------------------------------------------------------- */
 
 const validBody = { day: '2026-08-25', messages: 42 };
+const TODAY = '2026-08-29';
+
+function readSubmission(value: unknown) {
+  return parseSubmission(value, TODAY);
+}
 
 describe('submission', () => {
   it('reads a day and a count, and nothing else', () => {
@@ -138,6 +143,21 @@ describe('submission', () => {
     });
     expect(readSubmission(null)).toEqual({ ok: false, rejection: 'malformed' });
     expect(readSubmission('nope')).toEqual({ ok: false, rejection: 'malformed' });
+  });
+  it('accepts the full local retention window plus date-line skew', () => {
+    expect(parseSubmission({ day: '2026-05-31', messages: 1 }, '2026-08-29').ok).toBe(true);
+    expect(parseSubmission({ day: '2026-08-30', messages: 1 }, '2026-08-29').ok).toBe(true);
+  });
+
+  it('rejects dates older than retention or farther into the future', () => {
+    expect(parseSubmission({ day: '2026-05-30', messages: 1 }, '2026-08-29')).toEqual({
+      ok: false,
+      rejection: 'bad-day',
+    });
+    expect(parseSubmission({ day: '2026-08-31', messages: 1 }, '2026-08-29')).toEqual({
+      ok: false,
+      rejection: 'bad-day',
+    });
   });
 });
 

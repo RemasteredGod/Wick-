@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 102" width="36" height="102" role="img" aria-label="Wick">
+<defs><linearGradient id="fl" x1="0" y1="0" x2=".45" y2="1"><stop offset="0" stop-color="#e8a33d"></stop><stop offset="1" stop-color="#c96442"></stop></linearGradient></defs><path d="M 18 0 L 8.45405845398161 9.55 A 13.5 13.5 0 1 0 27.54594154601839 9.55 Z" fill="url(#fl)"></path>
+<rect x="0" y="42" width="36" height="60" rx="18" fill="#3f3c37"></rect>
+<path d="M 0 86.4 H 36 V 84 A 18 18 0 0 1 18 102 A 18 18 0 0 1 0 84 Z" fill="none"></path>
+<clipPath id="body"><rect x="0" y="42" width="36" height="60" rx="18"></rect></clipPath>
+<g clip-path="url(#body)"><rect x="0" y="86.4" width="36" height="15.6" fill="#c96442"></rect></g>
+</svg>

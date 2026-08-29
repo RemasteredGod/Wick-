@@ -26,6 +26,30 @@ export interface WickStateHandle {
   update(patch: Partial<Settings>): void;
 }
 
+/**
+ * Admit only the newest asynchronous state read.
+ *
+ * Storage changes can arrive faster than `readState` completes. Without this
+ * gate, a read started for Leave can finish after the read started for Join and
+ * put the popup back into a stale "Not joined" state until some unrelated
+ * storage write happens. Request order, not completion order, is authoritative.
+ */
+export function createLatestLoadGate(): {
+  begin(): number;
+  accepts(request: number): boolean;
+} {
+  let latest = 0;
+  return {
+    begin() {
+      latest += 1;
+      return latest;
+    },
+    accepts(request) {
+      return request === latest;
+    },
+  };
+}
+
 const EMPTY: WickState = {
   snapshot: null,
   history: [],
@@ -39,10 +63,12 @@ export function useWickState(): WickStateHandle {
 
   useEffect(() => {
     let live = true;
+    const loadGate = createLatestLoadGate();
 
     const load = () => {
+      const request = loadGate.begin();
       void readState().then((next) => {
-        if (!live) return;
+        if (!live || !loadGate.accepts(request)) return;
         setState(next);
         setReady(true);
       });
