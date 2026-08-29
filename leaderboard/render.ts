@@ -20,6 +20,7 @@
  * mean widening the CSP for the whole site. Nothing here needs one.
  */
 
+import BRAND_IDENTITY from '../brand/v3/geometry.json';
 import { SELF_REPORTED_LABEL, type ProfileCard } from './profile.js';
 import type { Period } from './periods.js';
 import type { Standing } from './ranking.js';
@@ -36,6 +37,33 @@ const PERIOD_LABELS: Record<Period, string> = {
   month: 'This month',
   all: 'All time',
 };
+
+/** Convert one trusted shared six-digit identity colour to deterministic CSS. */
+function withAlpha(hex: string, alpha: number): string {
+  if (
+    !/^#[\da-f]{6}$/iu.test(hex) ||
+    !Number.isFinite(alpha) ||
+    alpha < 0 ||
+    alpha > 1
+  ) {
+    throw new Error('invalid identity colour or alpha');
+  }
+
+  const channels = [1, 3, 5].map((offset) =>
+    Number.parseInt(hex.slice(offset, offset + 2), 16),
+  );
+  const cssAlpha = String(alpha).replace(/^0\./u, '.');
+  return `rgba(${channels.join(',')},${cssAlpha})`;
+}
+
+const LEAD_ROW_TINT = withAlpha(BRAND_IDENTITY.gradient.start, 0.045);
+
+/** A static website-only side rail. The server also sends Referrer-Policy: no-referrer. */
+function sponsorPanel(): string {
+  return `<aside class="sponsor" aria-label="Project sponsorship">
+  <a class="button" href="https://ko-fi.com/remasteredgod" target="_blank" rel="noreferrer" referrerpolicy="no-referrer">Sponsor this project</a>
+</aside>`;
+}
 
 /**
  * Escape text for HTML.
@@ -156,6 +184,8 @@ ${rows}
 
 ${body}
 
+${sponsorPanel()}
+
 <footer class="foot">
   <p><strong>What gets shared.</strong> A calendar day and how many messages were
   sent on it. Nothing about conversations, projects, models or times of day, and no
@@ -250,6 +280,8 @@ ${share}
 <div class="windows">
 ${periods}
 </div>
+
+${sponsorPanel()}
 
 <footer class="foot">
   <p><strong>What this page holds.</strong> A name the board assigned, and how many
@@ -360,9 +392,26 @@ ${steps}
 
 /* ---- The shell ----------------------------------------------------------- */
 
-/** The mark: a flame over a bar, as the canvas draws it. */
+/** The decorative canonical v3 mark; quota semantics do not attach to site identity. */
 function mark(): string {
-  return `<span class="mark"><i></i><b></b></span>`;
+  const { regular, gradient, colours } = BRAND_IDENTITY;
+  const { viewBox, body } = regular;
+  const specimenRemaining = 26;
+  const fillHeight = body.height * (specimenRemaining / 100);
+  const fillY = body.y + body.height - fillHeight;
+
+  return `<svg class="mark" viewBox="${String(viewBox.x)} ${String(viewBox.y)} ${String(viewBox.width)} ${String(viewBox.height)}" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="wick-site-ember" x1="${String(gradient.x1)}" y1="${String(gradient.y1)}" x2="${String(gradient.x2)}" y2="${String(gradient.y2)}">
+      <stop offset="0" stop-color="${gradient.start}"></stop>
+      <stop offset="1" stop-color="${gradient.end}"></stop>
+    </linearGradient>
+    <clipPath id="wick-site-body"><rect x="${String(body.x)}" y="${String(body.y)}" width="${String(body.width)}" height="${String(body.height)}" rx="${String(body.radius)}"></rect></clipPath>
+  </defs>
+  <path class="mark__ember" d="${regular.emberPath}" fill="url(#wick-site-ember)"></path>
+  <rect x="${String(body.x)}" y="${String(body.y)}" width="${String(body.width)}" height="${String(body.height)}" rx="${String(body.radius)}" fill="${colours.trackRegular}"></rect>
+  <g clip-path="url(#wick-site-body)"><rect x="${String(body.x)}" y="${String(fillY)}" width="${String(body.width)}" height="${String(fillHeight)}" fill="${gradient.end}"></rect></g>
+</svg>`;
 }
 
 /**
@@ -380,12 +429,15 @@ function page(title: string, content: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
 <title>${escapeHtml(title)}</title>
 <meta name="color-scheme" content="dark">
 <style>
-:root{--bg:#0f0e0d;--card:#141312;--tile:#171614;--line:#262421;--row:#1d1c1a;
+:root{--bg:#0f0e0d;--card:${BRAND_IDENTITY.colours.tile};--tile:#171614;--line:#262421;--row:#1d1c1a;
 --text:#f2efe9;--head:#efeae2;--bright:#e8e4dd;--body:#c9c4bb;--dim:#8a857d;
---faint:#6f6a63;--ghost:#5f5b55;--accent:#c96442;--flame:#e8a33d;
+--faint:#6f6a63;--ghost:${BRAND_IDENTITY.colours.trackSmall};--accent:${BRAND_IDENTITY.gradient.end};--brand-track:${BRAND_IDENTITY.colours.trackRegular};
 --track:#232120;--fill:#3c3a36;--lead:#5c5751;
 --mono:ui-monospace,Menlo,monospace;--sans:'Helvetica Neue',Helvetica,Arial,sans-serif}
 *{box-sizing:border-box}
@@ -404,10 +456,8 @@ a:hover{color:var(--text);border-bottom-color:var(--faint)}
 animation:wRise .5s cubic-bezier(.2,.7,.2,1) both}
 .eyebrow{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;
 letter-spacing:.16em;text-transform:uppercase;color:var(--dim);animation:wFade .6s ease both}
-.mark{display:inline-flex;flex-direction:column;align-items:center;gap:2px}
-.mark i{width:5px;height:5px;background:var(--flame);border-radius:50% 50% 50% 0;
-transform:rotate(45deg);animation:wFlicker 2.6s ease-in-out infinite}
-.mark b{width:6px;height:17px;border-radius:3px;background:#332f2b;display:block}
+.mark{display:block;width:6px;height:17px;flex:none}
+.mark__ember{transform-origin:center;animation:wFlicker 2.6s ease-in-out infinite}
 h1{font-family:Georgia,'Times New Roman',serif;font-size:38px;line-height:1.08;
 letter-spacing:-.015em;color:var(--head);margin:9px 0 0;font-weight:400}
 .sub{color:var(--dim);max-width:56ch;margin:9px 0 0}
@@ -417,8 +467,8 @@ letter-spacing:-.015em;color:var(--head);margin:9px 0 0;font-weight:400}
 animation:wFade .5s ease both}
 .tabs a{padding:5px 12px;border-radius:999px;font-family:var(--mono);font-size:11px;
 background:transparent;border:1px solid var(--line);color:var(--faint)}
-.tabs a.on{background:#242220;border-color:#3f3c37;color:var(--text)}
-.tabs a:hover{color:var(--text);border-color:#3f3c37}
+.tabs a.on{background:#242220;border-color:var(--brand-track);color:var(--text)}
+.tabs a:hover{color:var(--text);border-color:var(--brand-track)}
 .chip{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
 text-transform:uppercase;color:var(--ghost);border:1px solid var(--line);
 border-radius:999px;padding:4px 10px}
@@ -435,7 +485,7 @@ animation:wRise .45s cubic-bezier(.2,.7,.2,1) both}
 font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ghost);
 animation:none}
 .row--head:hover{background:transparent}
-.row.lead{background:rgba(232,163,61,.045)}
+.row.lead{background:${LEAD_ROW_TINT}}
 .rank{font-family:var(--mono);font-size:13px;color:var(--faint)}
 .lead .rank{color:var(--accent)}
 .handle{font-size:13.5px;color:#c1bcb4;white-space:nowrap;overflow:hidden;
@@ -497,7 +547,7 @@ animation:wRise .5s cubic-bezier(.2,.7,.2,1) both}
 .step__title{font-size:13.5px;color:var(--bright)}
 .step__body{font-size:12.5px;line-height:1.6;color:var(--dim)}
 .cta{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.button{border:1px solid #3f3c37;border-radius:9px;padding:9px 16px;font-size:13px;
+.button{border:1px solid var(--brand-track);border-radius:9px;padding:9px 16px;font-size:13px;
 color:var(--text);background:#1d1b19}
 .button:hover{background:#272522;border-color:#575249}
 .cta__note{font-family:var(--mono);font-size:11px;color:var(--faint)}
@@ -508,6 +558,12 @@ padding-top:20px}
 .split__body{font-size:12.5px;line-height:1.7;color:#7d786f}
 
 /* ---- footer ---- */
+
+/* ---- website-only sponsor rail ----
+   Reuses the established button component; this rule only takes it out of flow. */
+.sponsor{position:fixed;inset-inline-end:0;top:50%;transform:translateY(-50%);
+font-family:var(--mono)}
+
 .foot{padding-top:20px;border-top:1px solid #211f1e;color:var(--ghost);font-size:12px;
 max-width:640px}
 .foot strong{color:var(--body);font-weight:500}
@@ -519,10 +575,9 @@ max-width:640px}
 @keyframes wRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes wFade{from{opacity:0}to{opacity:1}}
 @keyframes wBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-@keyframes wFlicker{0%,100%{opacity:1;transform:rotate(45deg) scale(1)}
-38%{opacity:.72;transform:rotate(45deg) scale(.86)}
-61%{opacity:1;transform:rotate(45deg) scale(1.08)}
-79%{opacity:.85;transform:rotate(45deg) scale(.94)}}
+@keyframes wFlicker{0%,100%{opacity:1}38%{opacity:.72}61%{opacity:1}79%{opacity:.85}}
+
+@media(max-width:1240px){.sponsor{display:none}}
 
 @media(max-width:720px){
 .hide-sm{display:none}

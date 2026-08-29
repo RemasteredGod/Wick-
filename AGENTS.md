@@ -116,3 +116,43 @@ and the design notes.
 - `pnpm test` passes
 - `pnpm build` produces a loadable unpacked extension
 - No new permission in the manifest without saying so explicitly in your summary
+
+
+## Git identity and attribution
+
+- Do not put an AI agent, model, vendor, or automation tool in an author,
+  committer, `Co-authored-by` trailer, commit subject/body, branch name, pull
+  request title/body, changelog entry, or release note.
+- Never change `user.name`, `user.email`, signing configuration, or another Git
+  identity setting. Use the repository owner's configured identity.
+- Do not create commits, tags, releases, or pushes unless the owner explicitly
+  asks for that operation. Never push directly to the default branch.
+- These rules are prospective. Do not rewrite published history to remove old
+  attribution without explicit owner approval.
+
+## Shared WIP protocol
+
+When subagents are enabled, the lead agent owns one plain-text `WIP.md` at the
+repository root. Before an iteration starts, it records the iteration goal,
+owners, delegated tasks, non-overlapping file boundaries, dependencies,
+validation, status, and handoff notes.
+
+- The lead is the only writer to `WIP.md`; subagents return handoffs to the lead.
+  This prevents parallel coordination edits from conflicting.
+- A subagent may edit only the files assigned to it. Anything outside that
+  boundary is a finding for the lead, not an opportunistic change.
+- Delegation does not waive the clean-room, architecture, privacy, dependency,
+  design, validation, or Git rules in this file.
+- Integrate and validate one iteration before beginning the next.
+- After each iteration, clear operational details and restore `WIP.md` to its
+  clean `No active iteration` state. Do not commit transient WIP details.
+
+## Bug and security tracking
+
+- Record confirmed product defects in `BUGS.md` and a linked GitHub issue.
+- Do not publish exploitable vulnerability details before a fix is available.
+  Use GitHub private vulnerability reporting and follow `SECURITY.md`.
+- Every record names severity, evidence, affected versions, owner/status,
+  mitigation, and the test or observation that will close it.
+- Critical and high findings block a public release. Medium findings require an
+  explicit mitigation and follow-up issue; low findings may remain advisory.

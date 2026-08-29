@@ -12,4 +12,12 @@ coverage/
 claude design/**/unpacked/
 
 # Personal decision records and working notes. Kept locally, not published.
-docs/
+docs/*
+!docs/design.md
+!docs/leaderboard-production.md
+
+# Deterministic release packages are generated from dist and never committed.
+artifacts/
+
+# Local assistant/editor state is machine-specific.
+.kiro/

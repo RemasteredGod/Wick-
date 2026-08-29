@@ -28,6 +28,14 @@ const CLAUDE_MATCH = 'https://claude.ai/*';
  */
 const BOARD_MATCH = 'https://www.usewick.lol/*';
 
+/** Static unknown-state mark used until the live toolbar gauge paints. */
+const ICONS = {
+  '16': 'icons/16.png',
+  '32': 'icons/32.png',
+  '48': 'icons/48.png',
+  '128': 'icons/128.png',
+} as const;
+
 export default defineManifest({
   manifest_version: 3,
   name: 'Wick',
@@ -60,7 +68,10 @@ export default defineManifest({
   // without it.
   optional_host_permissions: [BOARD_MATCH],
 
+  icons: ICONS,
+
   action: {
+    default_icon: ICONS,
     default_popup: 'src/popup/index.html',
     default_title: 'Wick',
   },

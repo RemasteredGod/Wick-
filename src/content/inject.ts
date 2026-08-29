@@ -5,8 +5,11 @@
  * has to see the `window.fetch` that claude.ai actually calls. Registering it
  * through the manifest also makes CRXJS emit executable JavaScript instead of
  * asking the page to load a `.ts` extension URL with an octet-stream MIME type.
- * MV3's `webRequest` cannot read response bodies at all, so observing the
- * `message_limit` event at the tail of a completion stream must happen here.
+ * MV3's `webRequest` cannot read response bodies, so this wrapper can observe
+ * candidate stream hints in MAIN world. Those hints are not authoritative:
+ * live protocol verification is unavailable and `window.postMessage` is
+ * forgeable by the page. The isolated bridge deliberately sinks every hint,
+ * so this wrapper cannot create durable history, alerts or message totals.
  *
  * Two rules govern everything this file does, and both are easy to get wrong:
  *
@@ -72,12 +75,9 @@ function install(): void {
         const url = requestUrl(args[0]);
         if (url !== '' && isCompletionUrl(url)) {
           // Detached: a separate promise chain the page never sees or waits on.
-          // Note what is *not* here: the message count. A request starting is
-          // not a message — it may be refused for hitting the very limit Wick
-          // is reporting on, or fail on the network — and counting one here
-          // inflates the only figure on the panel that claims to count what the
-          // user actually did. The count happens in `observe`, once the server
-          // has answered with a stream.
+          // The URL matcher and response shape are speculative. Observations
+          // are emitted only as bounded hints and are intentionally discarded
+          // by the isolated bridge until live protocol verification exists.
           pending.then(observe, ignore).catch(ignore);
         }
       } catch {
@@ -112,9 +112,8 @@ async function observe(response: Response): Promise<void> {
     return;
   }
 
-  // The server accepted the send and is answering with a stream. *That* is a
-  // message. The id is per response, so the same one observed twice — a second
-  // wrapper, a re-entered handler — is still one message.
+  // Candidate accepted-completion hint only. A MAIN-world content type is
+  // page-controllable and is never allowed to increment durable state.
   post({ source: INJECT_SOURCE, kind: 'message-sent', at: Date.now(), id: requestId() });
 
   await readStream(copy);

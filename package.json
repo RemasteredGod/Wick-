@@ -11,10 +11,14 @@
   "packageManager": "pnpm@11.23.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm icons:generate && tsc --noEmit && vite build",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:build": "node scripts/verify-extension-build.mjs",
+    "package": "node scripts/package-extension.mjs",
+    "verify:package": "node scripts/verify-extension-package.mjs"
   },
   "dependencies": {
     "preact": "^10.29.8"

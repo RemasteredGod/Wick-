@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "regular": {
+    "viewBox": { "x": 0, "y": 0, "width": 36, "height": 102 },
+    "emberPath": "M 18 0 L 8.45405845398161 9.55 A 13.5 13.5 0 1 0 27.54594154601839 9.55 Z",
+    "emberBounds": { "x": 4.5, "y": 0, "width": 27, "height": 33 },
+    "body": { "x": 0, "y": 42, "width": 36, "height": 60, "radius": 18 }
+  },
+  "small": {
+    "viewBox": { "x": 0, "y": 0, "width": 38, "height": 100 },
+    "emberTransform": { "scaleX": 1.1111111111111112, "scaleY": 1.0303030303030303, "translateX": -1, "translateY": 0 },
+    "emberBounds": { "x": 4, "y": 0, "width": 30, "height": 34 },
+    "body": { "x": 0, "y": 42, "width": 38, "height": 58, "radius": 19 }
+  },
+  "gradient": {
+    "x1": 0,
+    "y1": 0,
+    "x2": 0.45,
+    "y2": 1,
+    "start": "#e8a33d",
+    "end": "#c96442"
+  },
+  "colours": {
+    "trackRegular": "#3f3c37",
+    "trackSmall": "#5f5b55",
+    "tile": "#141312"
+  },
+  "componentFootprints": {
+    "inline": { "width": 5.656854249492381, "height": 20.656854249492383 },
+    "hero": { "width": 7.0710678118654755, "height": 36.071067811865476 }
+  }
+}

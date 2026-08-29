@@ -103,9 +103,9 @@ export interface LimitWindow {
 export type SnapshotSource =
   /** The authoritative usage endpoint. Wins unconditionally. */
   | 'usage'
-  /** The tail of a completion stream. Optimistic, 1–2 seconds early. */
+  /** Legacy stream source retained for stored-data compatibility; no new page hint writes it. */
   | 'stream'
-  /** A refusal response. Sometimes the last reading available for a window. */
+  /** Legacy refusal source retained for stored-data compatibility; polling is authoritative. */
   | 'rejection';
 
 /** The latest known state, as displayed. One per provider. */
@@ -154,7 +154,7 @@ export interface DailyRollup {
    * mid-day would otherwise erase its own evidence.
    */
   windows: Record<string, number>;
-  /** Messages sent that day, counted from completion events. */
+  /** Local/legacy message count. Never used to backfill the publication ledger. */
   messageCount: number;
   /**
    * Messages per hour of the local day, 24 entries, index 0 = midnight.
@@ -164,6 +164,23 @@ export interface DailyRollup {
    * anything finer. Costs 24 small integers a day.
    */
   hourlyMessages: number[];
+}
+
+/**
+ * One local, publishable leaderboard total.
+ *
+ * This is deliberately separate from `DailyRollup`: usage history is scoped to
+ * an organisation for percentage projections, while public message totals are
+ * scoped to the freshly observed account email. The email remains local and is
+ * stripped before submission.
+ */
+export interface LeaderboardDailyEntry {
+  /** Normalized account observation used only as a local partition key. */
+  email: string;
+  /** Local calendar date, `YYYY-MM-DD`. */
+  date: string;
+  /** Trusted accepted-completion confirmations recorded for this day. */
+  messages: number;
 }
 
 /**
@@ -224,6 +241,23 @@ export interface DisplayOptions {
 }
 
 /**
+ * What the local leaderboard publisher is doing.
+ *
+ * This is deliberately local and coarse. It exposes enough to distinguish a
+ * count that is still changing from a completed day in flight or awaiting a
+ * retry, without persisting transport details or anything from a rollup.
+ */
+export type BoardSyncState =
+  /** No completed day has been accepted yet; today's count must remain local. */
+  | { kind: 'waiting-for-day-close' }
+  /** At least one completed day is currently being offered to the board. */
+  | { kind: 'syncing' }
+  /** A completed day was not accepted and will be tried on a later drain. */
+  | { kind: 'retry-pending' }
+  /** Every eligible row through this local date has been accepted. */
+  | { kind: 'accepted-through'; day: string };
+
+/**
  * User settings.
  *
  * `boardToken` is the participant credential for the public leaderboard, and it
@@ -254,6 +288,8 @@ export interface Settings {
   boardEmail: string | null;
   /** The last day already submitted, `YYYY-MM-DD`. Nothing before it is resent. */
   boardSubmittedThrough: string | null;
+  /** Local publication progress. Contains no account or rollup data. */
+  boardSyncState: BoardSyncState;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -264,6 +300,7 @@ export const DEFAULT_SETTINGS: Settings = {
   boardName: null,
   boardEmail: null,
   boardSubmittedThrough: null,
+  boardSyncState: { kind: 'waiting-for-day-close' },
 };
 
 /** Thresholds the settings screen offers. From artboard 03. */

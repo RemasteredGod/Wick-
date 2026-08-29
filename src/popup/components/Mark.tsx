@@ -1,78 +1,96 @@
+import { useId } from 'preact/hooks';
 import {
+  EMBER_PATH,
+  MARK_IDENTITY,
   MARK_SIZES,
-  FLAME_ROTATION_DEGREES,
-  bodyPath,
-  flamePath,
   fillRect,
   layout,
-  type MarkGeometry,
+  type MarkSize,
 } from '~/assets/mark';
 import type { ThresholdState } from '~/core/types';
 
 interface MarkProps {
-  /**
-   * Quota **remaining**, 0–100, or `null` when nothing is known. Not
-   * consumption — see src/assets/mark.ts.
-   */
+  /** Quota remaining, or null when no percentage is known. */
   remaining: number | null;
-  /** Drives the fill colour. Nothing else does. */
+  /** Existing status precedence drives the fill/dash colour. */
   state: ThresholdState;
-  size?: keyof typeof MARK_SIZES;
-  /** Override the measured geometry. Used by the panel header. */
-  geometry?: MarkGeometry;
+  size?: MarkSize;
 }
 
-/**
- * The mark, drawn as SVG from the geometry in src/assets/mark.ts.
- *
- * SVG rather than the archive's two nested divs, because the same shape has to
- * render into an OffscreenCanvas for the toolbar icon in M5, and maintaining
- * one definition beats keeping a DOM version and a canvas version in step.
- */
-export function Mark({ remaining, state, size = 'inline', geometry }: MarkProps) {
-  const spec: MarkGeometry = geometry ?? MARK_SIZES[size];
-  const { viewBox, body, flame } = layout(spec);
+/** The canonical v3 upright mark, without changing its existing layout box. */
+export function Mark({ remaining, state, size = 'inline' }: MarkProps) {
+  const id = useId().replace(/[^A-Za-z0-9_-]/g, '');
+  const clipId = `wick-mark-body-${id}`;
+  const gradientId = `wick-mark-ember-${id}`;
+  const { viewBox, body } = layout();
+  const footprint = MARK_SIZES[size];
   const fill = fillRect(body, remaining ?? 0);
-
-  const clipId = `wick-mark-clip-${spec.bodyWidth}x${spec.bodyHeight}`;
+  const unknownDashHeight = body.height * 0.1;
 
   return (
     <svg
       class="wick-mark"
-      width={viewBox.width}
-      height={viewBox.height}
-      viewBox={viewBox.toString()}
+      width={footprint.width}
+      height={footprint.height}
+      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
       role="img"
       aria-label={remaining === null ? 'Usage unknown' : `${Math.round(remaining)}% remaining`}
     >
       <defs>
+        <linearGradient
+          id={gradientId}
+          x1={MARK_IDENTITY.gradient.x1}
+          y1={MARK_IDENTITY.gradient.y1}
+          x2={MARK_IDENTITY.gradient.x2}
+          y2={MARK_IDENTITY.gradient.y2}
+        >
+          <stop offset="0" stop-color={MARK_IDENTITY.gradient.start} />
+          <stop offset="1" stop-color={MARK_IDENTITY.gradient.end} />
+        </linearGradient>
         <clipPath id={clipId}>
-          <path d={bodyPath(body.x, body.y, body.width, body.height, body.radius)} />
+          <rect
+            x={body.x}
+            y={body.y}
+            width={body.width}
+            height={body.height}
+            rx={body.radius}
+          />
         </clipPath>
       </defs>
 
       <path
-        d={flamePath(flame.x, flame.y, flame.size)}
-        transform={`rotate(${FLAME_ROTATION_DEGREES} ${flame.centreX} ${flame.centreY})`}
-        fill="var(--wick-flame)"
+        d={EMBER_PATH}
+        fill={remaining === null ? 'var(--wick-mark-track)' : `url(#${gradientId})`}
+      />
+      <rect
+        x={body.x}
+        y={body.y}
+        width={body.width}
+        height={body.height}
+        rx={body.radius}
+        fill="var(--wick-mark-track)"
       />
 
-      <path
-        d={bodyPath(body.x, body.y, body.width, body.height, body.radius)}
-        fill="var(--wick-track)"
-      />
-
-      {/* Clipped rather than rounded, matching the archive's overflow:hidden —
-          so a nearly-empty gauge keeps the body's square-ish bottom edge. */}
-      {remaining !== null && fill.height > 0 && (
+      {remaining === null ? (
         <rect
-          x={fill.x}
-          y={fill.y}
-          width={fill.width}
-          height={fill.height}
+          x={body.x}
+          y={body.y + (body.height - unknownDashHeight) / 2}
+          width={body.width}
+          height={unknownDashHeight}
           clip-path={`url(#${clipId})`}
-          fill={fillColour(state)}
+          fill={state === 'unknown' ? 'var(--wick-text-dim)' : fillColour(state)}
         />
+      ) : (
+        fill.height > 0 && (
+          <rect
+            x={fill.x}
+            y={fill.y}
+            width={fill.width}
+            height={fill.height}
+            clip-path={`url(#${clipId})`}
+            fill={fillColour(state)}
+          />
+        )
       )}
     </svg>
   );
@@ -85,7 +103,7 @@ function fillColour(state: ThresholdState): string {
     case 'crit':
       return 'var(--wick-crit)';
     case 'unknown':
-      return 'var(--wick-track)';
+      return 'var(--wick-text-dim)';
     case 'ok':
       return 'var(--wick-accent)';
   }

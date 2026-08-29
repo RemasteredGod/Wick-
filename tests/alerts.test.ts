@@ -12,6 +12,9 @@
  * subscription itself is not taken on trust.
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cycleKeyFor,
@@ -122,6 +125,16 @@ describe('threshold alerts', () => {
     );
 
     expect(fake.notifications).toHaveLength(1);
+    expect(fake.notifications[0]).toMatchObject({
+      type: 'basic',
+      title: 'Wick',
+      iconUrl: 'chrome-extension://wick-test/icons/128.png',
+    });
+    const notificationIcon = resolve(import.meta.dirname, '../public/icons/128.png');
+    expect(existsSync(notificationIcon)).toBe(true);
+    expect(createHash('sha256').update(readFileSync(notificationIcon)).digest('hex')).toBe(
+      'e37181c5b99a133846c045b07db782d89fbb04f401ec1f990a1bedb922581450',
+    );
     expect(messages()[0]).toBe('Weekly usage 82% — 4 days to reset.');
   });
 

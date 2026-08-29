@@ -30,6 +30,9 @@
   /* ---- Tracks and bars --------------------------------------------------- */
   --wick-track: #332f2b;
   --wick-track-alt: #302e2b;
+  --wick-mark-track: #3f3c37;
+  --wick-mark-track-small: #5f5b55;
+  --wick-mark-tile: #141312;
   --wick-history-bar: #33312e;
   --wick-history-bar-recent: #3c3a36;
 

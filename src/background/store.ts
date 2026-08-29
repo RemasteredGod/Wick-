@@ -22,6 +22,7 @@ import {
   type AlertRecord,
   type CollectorStatus,
   type DailyRollup,
+  type LeaderboardDailyEntry,
   type Settings,
   type Snapshot,
   type WickState,
@@ -36,6 +37,7 @@ export const KEYS = {
   alerts: 'wick:alerts',
   account: 'wick:account',
   accountEmail: 'wick:account-email',
+  boardLedger: 'wick:board-ledger',
 } as const;
 
 /**
@@ -70,6 +72,9 @@ function serialised<T>(work: () => Promise<T>): Promise<T> {
  * small. A rollup is a few dozen bytes, so this is generous.
  */
 export const HISTORY_RETENTION_DAYS = 90;
+
+/** Local calendar days retained in each email's publication ledger. */
+export const LEADERBOARD_RETENTION_DAYS = 90;
 
 /** Alert records retained. Only recent ones matter, for de-duplication. */
 const ALERT_RETENTION = 50;
@@ -147,22 +152,39 @@ export async function readAccountId(): Promise<string | null> {
 export async function readAccountEmail(): Promise<string | null> {
   try {
     const stored = (await chrome.storage.local.get(KEYS.accountEmail))[KEYS.accountEmail];
-    return typeof stored === 'string' && stored !== '' ? stored : null;
+    return typeof stored === 'string' ? normaliseAccountEmail(stored) : null;
   } catch {
     return null;
   }
 }
 
-/** Record the signed-in account. Never throws; not knowing is a handled state. */
+/**
+ * Normalize an account observation without treating it as proof of identity.
+ *
+ * This only keeps local partitions stable across case/whitespace differences;
+ * the sidebar observation remains self-reported and is never a credential.
+ */
+export function normaliseAccountEmail(value: string): string | null {
+  const normalised = value.trim().toLowerCase();
+  if (normalised.length === 0 || normalised.length > 320) return null;
+  if (/[\u0000-\u0020\u007f]/.test(normalised)) return null;
+  const at = normalised.indexOf('@');
+  if (at <= 0 || at !== normalised.lastIndexOf('@') || at === normalised.length - 1) return null;
+  return normalised;
+}
+
+/** Record a nullable observation. Never throws; unknown is a durable state. */
 export async function writeAccountEmail(email: string | null): Promise<void> {
   try {
-    if (email === null) {
-      await chrome.storage.local.remove(KEYS.accountEmail);
-      return;
-    }
-    await chrome.storage.local.set({ [KEYS.accountEmail]: email });
+    const normalised = email === null ? null : normaliseAccountEmail(email);
+    await serialised(async () => {
+      // Store null explicitly. Removing the key would collapse "observed signed
+      // out/unknown" into "this installation has never observed an account",
+      // making the fail-closed A → null → B transition impossible to audit.
+      await chrome.storage.local.set({ [KEYS.accountEmail]: normalised });
+    });
   } catch {
-    // Storage refusing to write costs one late account switch, not correctness.
+    // Storage refusing to write costs one late account transition, not correctness.
   }
 }
 
@@ -236,7 +258,11 @@ export async function recordReading(
   });
 }
 
-/** Increment today's message count, and the hour it happened in. */
+/**
+ * Increment the organisation-scoped local history counter from trusted code.
+ * Page-derived completion hints must never call this, and publication never
+ * reads it; `recordConfirmedLeaderboardMessage` owns the separate email ledger.
+ */
 export async function recordMessage(at: number, accountId: string | null = null): Promise<void> {
   await serialised(async () => {
     const history = await readAllHistory();
@@ -290,6 +316,95 @@ async function writeRollup(rollup: DailyRollup, history: DailyRollup[]): Promise
   const kept = new Set(dates.slice(-HISTORY_RETENTION_DAYS));
 
   await chrome.storage.local.set({ [KEYS.history]: all.filter((day) => kept.has(day.date)) });
+}
+
+/* ---- Leaderboard publication ledger ------------------------------------ */
+
+/** Every structurally valid local publication row, oldest first. */
+async function readAllLeaderboardLedger(): Promise<LeaderboardDailyEntry[]> {
+  const stored = await chrome.storage.local.get(KEYS.boardLedger);
+  const value = stored[KEYS.boardLedger];
+  if (!Array.isArray(value)) return [];
+  return value.filter(isLeaderboardEntry).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Rows for one normalized account observation. No organisation fallback. */
+export async function readLeaderboardLedger(
+  email: string | null,
+): Promise<LeaderboardDailyEntry[]> {
+  if (email === null) return readAllLeaderboardLedger();
+  const normalised = normaliseAccountEmail(email);
+  if (normalised === null) return [];
+  return (await readAllLeaderboardLedger()).filter((entry) => entry.email === normalised);
+}
+
+/**
+ * Increment the publishable ledger from a trusted accepted-completion signal.
+ *
+ * No current protocol path calls this. MAIN-world stream/content-type evidence
+ * is page-forgeable and therefore cannot satisfy this API's caller contract.
+ * Keeping the API separate makes a future owner-verified confirmation explicit
+ * without ever inferring totals from ambiguous organisation rollups.
+ */
+export async function recordConfirmedLeaderboardMessage(
+  email: string,
+  at: number,
+): Promise<boolean> {
+  const normalised = normaliseAccountEmail(email);
+  if (normalised === null || !Number.isFinite(at)) return false;
+
+  return serialised(async () => {
+    const ledger = await readAllLeaderboardLedger();
+    const date = localDateKey(at);
+    const existing = ledger.find((entry) => entry.email === normalised && entry.date === date);
+    const next: LeaderboardDailyEntry = {
+      email: normalised,
+      date,
+      messages: (existing?.messages ?? 0) + 1,
+    };
+    const all = [
+      ...ledger.filter((entry) => entry.email !== normalised || entry.date !== date),
+      next,
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Retention is an inclusive local-calendar window, not a count of active
+    // dates. Otherwise a sparse account can keep an arbitrarily old row at the
+    // front of its backlog, where the server will reject it forever. Anchor to
+    // this email's newest row so an out-of-order confirmation cannot widen the
+    // partition or let another account's activity evict it.
+    const newestDate = all
+      .filter((entry) => entry.email === normalised)
+      .reduce((latest, entry) => (entry.date > latest ? entry.date : latest), date);
+    const retainedFrom = leaderboardRetentionStartForDate(newestDate);
+
+    await chrome.storage.local.set({
+      [KEYS.boardLedger]: all.filter(
+        (entry) => entry.email !== normalised || entry.date >= retainedFrom,
+      ),
+    });
+    return true;
+  });
+}
+
+/** Oldest local date in the inclusive leaderboard retention window. */
+export function leaderboardRetentionStart(at: number): string {
+  return leaderboardRetentionStartForDate(localDateKey(at));
+}
+
+function leaderboardRetentionStartForDate(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(0);
+  // The components are already a local calendar date. UTC is used only as a
+  // DST-free calendar calculator; converting the original timestamp again
+  // would make 23/25-hour days and timezone offsets part of date arithmetic.
+  date.setUTCHours(12, 0, 0, 0);
+  date.setUTCFullYear(year ?? 0, (month ?? 1) - 1, day ?? 1);
+  date.setUTCDate(date.getUTCDate() - (LEADERBOARD_RETENTION_DAYS - 1));
+  return [
+    String(date.getUTCFullYear()).padStart(4, '0'),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 /* ---- Settings ------------------------------------------------------------ */
@@ -394,3 +509,19 @@ function isRollup(value: unknown): value is DailyRollup {
   return typeof v.date === 'string' && typeof v.windows === 'object' && v.windows !== null;
 }
 
+
+
+
+function isLeaderboardEntry(value: unknown): value is LeaderboardDailyEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Partial<LeaderboardDailyEntry>;
+  if (typeof entry.email !== 'string' || normaliseAccountEmail(entry.email) !== entry.email) {
+    return false;
+  }
+  return (
+    typeof entry.date === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
+    Number.isSafeInteger(entry.messages) &&
+    (entry.messages ?? -1) >= 0
+  );
+}

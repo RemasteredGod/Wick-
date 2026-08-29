@@ -16,3 +16,10 @@ trim_trailing_whitespace = false
 indent_size = unset
 max_line_length = unset
 trim_trailing_whitespace = false
+
+# Owner-provided v3 SVG masters are tracked byte-for-byte against reviewed hashes.
+[src/assets/brand/v3/wick-mark.svg]
+insert_final_newline = false
+
+[public/favicon.svg]
+insert_final_newline = false
