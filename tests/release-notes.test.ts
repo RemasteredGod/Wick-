@@ -138,6 +138,7 @@ describe('draft release workflow', () => {
     expect(workflow).toContain('pnpm test');
     expect(workflow).toContain('pnpm typecheck');
     expect(workflow).toContain('pnpm exec tsc --project tsconfig.vercel.json --noEmit');
+    expect(workflow).toContain('pnpm verify:vercel-runtime');
     expect(workflow).toContain('pnpm verify:build');
     expect(workflow).toContain('pnpm verify:package');
     expect(workflow).toContain('gh release create "$RELEASE_TAG"');

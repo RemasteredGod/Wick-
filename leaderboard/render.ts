@@ -20,7 +20,7 @@
  * mean widening the CSP for the whole site. Nothing here needs one.
  */
 
-import BRAND_IDENTITY from '../brand/v3/geometry.json';
+import BRAND_IDENTITY from '../brand/v3/geometry.json' with { type: 'json' };
 import { SELF_REPORTED_LABEL, type ProfileCard } from './profile.js';
 import type { Period } from './periods.js';
 import type { Standing } from './ranking.js';

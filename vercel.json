@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install --prod=false --frozen-lockfile",
-  "buildCommand": "tsc --noEmit -p tsconfig.vercel.json",
+  "buildCommand": "tsc --noEmit -p tsconfig.vercel.json && pnpm verify:vercel-runtime",
   "outputDirectory": "public",
   "framework": null,
   "functions": {

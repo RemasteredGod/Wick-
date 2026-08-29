@@ -51,6 +51,7 @@ jobs:
           pnpm test
           pnpm typecheck
           pnpm exec tsc --project tsconfig.vercel.json --noEmit
+          pnpm verify:vercel-runtime
 
       - name: Build and verify unpacked extension
         run: |

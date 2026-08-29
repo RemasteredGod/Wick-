@@ -185,3 +185,20 @@ Severity values: `critical`, `high`, `medium`, `low`.
   full tests/build verification, and a successful uncached Vercel preview build
   of the exact candidate commit with no TS2688 or toolchain-version warnings.
 - GitHub issue: https://github.com/RemasteredGod/Wick-/issues/17
+
+## WICK-011 — Vercel public pages crash while linking shared brand geometry
+
+- Severity: high
+- Status: blocked (local implementation verified; hosted invocation pending)
+- Affected: merged Vercel deployment at `9880e81` and earlier v3-brand builds
+- Evidence: `/`, `/board`, and profile functions statically link the shared
+  renderer. Its bare `geometry.json` import raises
+  `ERR_IMPORT_ATTRIBUTE_MISSING` under Node 24 before any handler runs. A local
+  emit of the actual deployment graph reproduced the same exception under Node
+  24.18.1.
+- Required fix: retain `geometry.json` as the shared canonical source, use an
+  explicit JSON import attribute, and execute the emitted landing, board, and
+  profile handlers with native Node semantics during tests and Vercel builds.
+- Close with: passing local runtime smoke plus successful hosted invocation of
+  `/`, `/board`, and a profile route on the fixed deployment.
+- GitHub issue: https://github.com/RemasteredGod/Wick-/issues/21
